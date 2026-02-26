@@ -1,19 +1,19 @@
 import React, { Suspense, useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Terminal as TerminalIcon, Activity, Shield, Settings, Play, StopCircle, Zap, BrainCircuit, FileText, Download, Save, Server, Code, Database, Copy, Eye, Clock, Archive, Skull } from 'lucide-react';
+import { Activity, Shield, Play, StopCircle, Zap, BrainCircuit, FileText, Download, Server, Code, Database, Copy, Eye, Clock, Archive, Skull } from 'lucide-react';
 import clsx from 'clsx';
 import TerminalView from './components/Terminal';
 import { SplitPanelLayout } from './components/ui/SplitPanelLayout';
 import { CopyableText } from './components/ui/CopyableText';
 import { TabbedView } from './components/ui/TabbedView';
 import { VerticalSplitLayout } from './components/ui/VerticalSplitLayout';
-import { LogEntry, SystemMetrics, AttackProfile, FingerprintData, TargetConfig, ScanHistoryItem } from './types';
+import { LogEntry, SystemMetrics, AttackProfile, TargetConfig, ScanHistoryItem } from './types';
 import { generatePdfReport } from './services/reportService';
 import { API_BASE_URL, WS_BASE_URL } from './services/apiConfig';
 import { checkBackendReady } from './services/backendHealth';
 import { formatBlockerForDisplay, normalizeCoverageBlockers, normalizeReport, safeStringify, type ReportState } from './services/reportNormalization';
 import { useAuth, LoginPage, UserMenu } from './components/AuthContext';
 import { computeUnifiedRiskLevel } from './utils/unifiedRisk';
-import { MOCK_FINGERPRINTS, PROFILE_RULES, DEFAULT_CONFIG, LOG_RING_MAX, ACTIVE_JOB_STATUSES, TERMINAL_JOB_STATUSES } from './config/scanDefaults';
+import { MOCK_FINGERPRINTS, PROFILE_RULES, DEFAULT_CONFIG, ACTIVE_JOB_STATUSES, TERMINAL_JOB_STATUSES } from './config/scanDefaults';
 import { UnifiedUiConfig, UnifiedStatusMeta, UnifiedCapabilities, DEFAULT_UNIFIED_CONFIG, UNIFIED_PRESETS, type UnifiedMode, type UnifiedVector, type DirectDbEngine } from './config/unifiedConfig';
 import { AGENT_SCRIPT } from './config/agentScript';
 
@@ -576,12 +576,12 @@ const App: React.FC = () => {
                         limits: data.limits
                     });
                 }
-            } catch {
-                // use defaults
+            } catch (e: any) {
+                addLog('ORQUESTADOR', 'WARN', `No se pudieron cargar capacidades del backend: ${e?.message || 'usando defaults'}`);
             }
         };
         void fetchCapabilities();
-    }, [apiFetch, authState.isAuthenticated]);
+    }, [addLog, apiFetch, authState.isAuthenticated]);
 
     // Update Active Fingerprint when Profile Changes
     useEffect(() => {
@@ -1089,7 +1089,7 @@ ${csv}
                         >
                             {isRunning ? <><StopCircle size={18} /> DETENER MOTOR</> : <><Play size={18} /> EJECUTAR MOTOR</>}
                         </button>
-                        <button onClick={() => generatePdfReport(logs, metrics, targetConfig)} className="p-2 hover:bg-cyber-800 rounded text-emerald-400">
+                        <button onClick={() => generatePdfReport(logs, metrics, targetConfig)} className="p-2 hover:bg-cyber-800 rounded text-emerald-400" aria-label="Exportar reporte PDF" type="button">
                             <Download size={20} />
                         </button>
                     </div>

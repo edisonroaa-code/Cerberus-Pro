@@ -39,37 +39,44 @@ export function TabbedView({
     <div className={clsx('flex flex-col h-full overflow-hidden', className)}>
       <div className="flex border-b border-cyber-800 bg-cyber-900/60">
         {visibleTabs.map((tab) => (
-          <button
+          <div
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
             className={clsx(
-              'flex items-center gap-2 px-4 py-3 text-xs font-bold transition-colors border-b-2',
+              'flex items-center border-b-2',
               activeTab === tab.id
-                ? 'bg-cyber-950 text-white border-cyan-500'
-                : 'text-gray-400 hover:text-gray-200 hover:bg-cyber-800/40 border-transparent'
+                ? 'bg-cyber-950 border-cyan-500'
+                : 'border-transparent hover:bg-cyber-800/40'
             )}
           >
-            {tab.icon}
-            <span>{tab.label}</span>
-            {typeof tab.badge === 'number' && tab.badge > 0 && (
-              <span className="px-2 py-0.5 text-[10px] bg-cyan-600 text-white rounded-full">
-                {tab.badge}
-              </span>
-            )}
+            <button
+              onClick={() => setActiveTab(tab.id)}
+              className={clsx(
+                'flex items-center gap-2 px-4 py-3 text-xs font-bold transition-colors',
+                activeTab === tab.id ? 'text-white' : 'text-gray-400 hover:text-gray-200'
+              )}
+              aria-label={`Open tab ${tab.label}`}
+              type="button"
+            >
+              {tab.icon}
+              <span>{tab.label}</span>
+              {typeof tab.badge === 'number' && tab.badge > 0 && (
+                <span className="px-2 py-0.5 text-[10px] bg-cyan-600 text-white rounded-full">
+                  {tab.badge}
+                </span>
+              )}
+            </button>
             {tab.closeable && (
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closeTab(tab.id);
-                }}
-                className="ml-1 p-0.5 rounded hover:bg-red-500/10 text-gray-400 hover:text-red-400"
+                onClick={() => closeTab(tab.id)}
+                className="mr-2 p-0.5 rounded hover:bg-red-500/10 text-gray-400 hover:text-red-400"
                 aria-label={`Close tab ${tab.label}`}
                 title="Close tab"
+                type="button"
               >
                 <X className="w-3 h-3" />
               </button>
             )}
-          </button>
+          </div>
         ))}
       </div>
 

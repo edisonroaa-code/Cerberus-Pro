@@ -617,7 +617,6 @@ async def get_current_user(
     
     # SEC-001: Dev bypass REMOVED. All environments require valid JWT.
     # To develop locally, generate a real token via POST /auth/login.
-        )
         
     token = None
     if cookie_or_bearer_token:

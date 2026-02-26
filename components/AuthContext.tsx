@@ -37,7 +37,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [loading, setLoading] = useState(true);
-  const refreshPromiseRef = useRef<Promise<boolean> | null>(null);
+  const refreshPromiseRef = useRef<Promise<string | null> | null>(null);
 
   useEffect(() => {
     void checkSession();
@@ -70,7 +70,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const refreshAccessToken = async (): Promise<boolean> => {
+  const refreshAccessToken = async (): Promise<string | null> => {
     if (refreshPromiseRef.current) {
       return refreshPromiseRef.current;
     }
@@ -82,7 +82,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         if (!response.ok) {
           setAuthState({ isAuthenticated: false, user: null, accessToken: null });
-          return false;
+          return null;
         }
         const tokens: TokenResponse = await response.json();
         setAuthState((prev) => ({
@@ -91,10 +91,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           accessToken: tokens.access_token,
         }));
         await checkSession();
-        return true;
+        return tokens.access_token;
       } catch {
         setAuthState({ isAuthenticated: false, user: null, accessToken: null });
-        return false;
+        return null;
       } finally {
         refreshPromiseRef.current = null;
       }
@@ -120,8 +120,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return response;
     }
 
-    const refreshed = await refreshAccessToken();
-    if (!refreshed) {
+    const refreshedToken = await refreshAccessToken();
+    if (!refreshedToken) {
       return response;
     }
 
@@ -131,9 +131,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...(mergedInit.headers || {}),
       },
     };
-    if (authState.accessToken) {
-      (retryInit.headers as Record<string, string>)['Authorization'] = `Bearer ${authState.accessToken}`;
-    }
+    (retryInit.headers as Record<string, string>)['Authorization'] = `Bearer ${refreshedToken}`;
     response = await fetch(input, retryInit);
     return response;
   };
