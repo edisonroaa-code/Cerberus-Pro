@@ -10,9 +10,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements_secure.txt /tmp/requirements_secure.txt
+COPY backend/requirements.txt /tmp/requirements.txt
 RUN pip install --upgrade pip \
-    && pip install -r /tmp/requirements_secure.txt
+    && pip install -r /tmp/requirements.txt
 
 # The workspace is mounted at runtime by the sandbox runner.
 CMD ["python", "--version"]

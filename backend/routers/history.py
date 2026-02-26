@@ -6,6 +6,9 @@ Handles: get_history, get_history_detail, get_history_profile.
 import os
 import json
 import logging
+from typing import List
+
+from backend.core.api_contracts import HistorySummaryItem, HistoryProfileResponse
 
 from fastapi import APIRouter, HTTPException, Depends
 
@@ -36,7 +39,7 @@ def _get_normalize_job_kind(kind):
 # HISTORY ENDPOINTS
 # ============================================================================
 
-@router.get("/")
+@router.get("/", response_model=List[HistorySummaryItem])
 async def get_history(current_user: JWTPayload = Depends(require_permission(Permission.SCAN_READ))):
     """List all saved scan reports"""
     history_dir = _get_history_dir()
@@ -89,7 +92,7 @@ async def get_history_detail(filename: str, current_user: JWTPayload = Depends(r
         raise HTTPException(status_code=500, detail="Error al leer el archivo de historial")
 
 
-@router.get("/{filename}/profile/{profile_name}")
+@router.get("/{filename}/profile/{profile_name}", response_model=HistoryProfileResponse)
 async def get_history_profile(
     filename: str,
     profile_name: str,

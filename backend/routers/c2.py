@@ -11,6 +11,12 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict
 
+from backend.core.api_contracts import (
+    AgentCreateRequest, AgentCreateResponse, AgentInfoPayload,
+    AgentListResponse, CommandSentResponse, StatusResponse,
+    TaskSubmitRequest, TaskSubmitResponse, TaskResultPayload,
+)
+
 from fastapi import APIRouter, Request, HTTPException, Depends
 
 from auth_security import (
@@ -52,9 +58,9 @@ async def _broadcast_log(component, level, msg, metadata=None):
 # AGENT MANAGEMENT
 # ============================================================================
 
-@router.post("/agents/create")
+@router.post("/agents/create", response_model=AgentCreateResponse)
 async def create_agent(
-    agent_name: str,
+    body: AgentCreateRequest,
     current_user: JWTPayload = Depends(get_current_user)
 ):
     """Create a new C2 Agent (Admin/Lead only)"""
@@ -63,6 +69,7 @@ async def create_agent(
     if current_user.role not in [Role.ADMIN, Role.SUPER_ADMIN, Role.LEAD]:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
 
+    agent_name = body.agent_name
     client_id = f"ag_{secrets.token_urlsafe(8)}"
     client_secret = secrets.token_urlsafe(32)
     client_secret_hash = hashlib.sha256(client_secret.encode()).hexdigest()
@@ -81,7 +88,10 @@ async def create_agent(
     state.agents[client_id] = agent
     logger.info(f"🤖 Agent created: {agent.name} (ID: {client_id}) by {current_user.username}")
 
-    return {"agent": agent, "client_secret": client_secret}
+    return AgentCreateResponse(
+        agent_id=agent.id, name=agent.name,
+        client_id=client_id, client_secret=client_secret
+    )
 
 
 @router.post("/agents/login", response_model=TokenResponse)
@@ -119,7 +129,7 @@ async def agent_login(credentials: AgentCredentials, request: Request):
     )
 
 
-@router.post("/agents/{agent_id}/stop")
+@router.post("/agents/{agent_id}/stop", response_model=CommandSentResponse)
 async def stop_agent(
     agent_id: str,
     current_user: JWTPayload = Depends(require_permission(Permission.AGENT_MANAGE))
@@ -140,7 +150,7 @@ async def stop_agent(
         await _audit(user_id=current_user.sub, action="agent_stop",
                      resource_type="agent", resource_id=agent_id)
 
-        return {"message": "Stop command sent", "cmd_id": cmd_id}
+        return CommandSentResponse(message="Stop command sent", cmd_id=cmd_id)
     except Exception as e:
         logger.error(f"❌ Failed to send stop command: {e}")
         raise HTTPException(status_code=500, detail="Failed to send command")
@@ -151,10 +161,10 @@ async def stop_agent(
 # ============================================================================
 
 @router.post("/register")
-async def c2_register_agent(agent_info: Dict, current_user: JWTPayload = Depends(get_current_user)):
+async def c2_register_agent(agent_info: AgentInfoPayload, current_user: JWTPayload = Depends(get_current_user)):
     """Register new agent (SEC-004: requires authentication)"""
     c2 = _get_c2_server()
-    agent_id = await c2.register_agent(agent_info)
+    agent_id = await c2.register_agent(agent_info.model_dump())
     logger.info(f"Agent registered by {current_user.username}: {agent_id}")
     return {"agent_id": agent_id, "encryption_key": c2.encryption_key.decode()}
 
@@ -167,13 +177,13 @@ async def c2_agent_beacon(agent_id: str, current_user: JWTPayload = Depends(get_
     return {"tasks": tasks}
 
 
-@router.post("/task/{task_id}/result")
-async def c2_task_result(task_id: str, result_data: Dict, current_user: JWTPayload = Depends(get_current_user)):
+@router.post("/task/{task_id}/result", response_model=StatusResponse)
+async def c2_task_result(task_id: str, result_data: TaskResultPayload, current_user: JWTPayload = Depends(get_current_user)):
     """Receive task result (SEC-004: requires authentication)"""
     c2 = _get_c2_server()
-    await c2.task_result(task_id=task_id, result=result_data.get("result"),
-                         success=result_data.get("success", False))
-    return {"status": "received"}
+    await c2.task_result(task_id=task_id, result=result_data.result,
+                         success=result_data.success)
+    return StatusResponse(status="received")
 
 
 @router.get("/agents")
@@ -190,26 +200,26 @@ async def list_agents(current_user=Depends(get_current_user)):
     return {"agents": agents}
 
 
-@router.post("/agents/{agent_id}/task")
+@router.post("/agents/{agent_id}/task", response_model=TaskSubmitResponse)
 async def submit_task_to_agent(
-    agent_id: str, payload_data: Dict, current_user=Depends(get_current_user)
+    agent_id: str, payload_data: TaskSubmitRequest, current_user=Depends(get_current_user)
 ):
     """Submit task to agent"""
     c2 = _get_c2_server()
     task_id = await c2.submit_task(
         agent_id=agent_id,
-        task_type=payload_data.get("type", ""),
-        task_data=payload_data.get("data", {}),
-        priority=payload_data.get("priority", 5)
+        task_type=payload_data.type,
+        task_data=payload_data.data,
+        priority=payload_data.priority
     )
     await _broadcast_log("C2", "INFO", f"Task sent to {agent_id}", {"task_id": task_id})
-    return {"task_id": task_id}
+    return TaskSubmitResponse(task_id=task_id)
 
 
-@router.delete("/agents/{agent_id}")
+@router.delete("/agents/{agent_id}", response_model=StatusResponse)
 async def kill_agent_endpoint(agent_id: str, current_user=Depends(get_current_user)):
     """Kill agent (self-destruct)"""
     c2 = _get_c2_server()
     await c2.kill_agent(agent_id)
     await _broadcast_log("C2", "CRITICAL", f"Kill signal sent to {agent_id}", {})
-    return {"status": "termination signal sent"}
+    return StatusResponse(status="termination signal sent")

@@ -17,7 +17,7 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
 }) => {
     return (
         <div className="max-w-6xl mx-auto space-y-6">
-            <div className="bg-cyber-900 border border-cyber-700 rounded-lg overflow-hidden">
+            <div className="glass-panel p-2 overflow-hidden">
                 <div className="p-6 border-b border-cyber-800 flex justify-between items-center bg-cyber-950/50">
                     <h2 className="text-xl font-bold text-cyan-400 flex items-center gap-2">
                         <Clock /> Historial de Escaneos Persistentes
@@ -92,3 +92,4 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
         </div>
     );
 };
+

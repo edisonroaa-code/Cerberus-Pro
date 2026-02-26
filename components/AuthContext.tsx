@@ -184,29 +184,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const register = async (userData: any) => {
-    setLoading(true);
-    try {
-      const response = await fetchWithTimeout(`${API_BASE_URL}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(userData),
-      });
-
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-
-      return true;
-    } catch (error) {
-      console.error('Registration failed:', error);
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const logout = async () => {
     try {
       await fetchWithTimeout(`${API_BASE_URL}/auth/logout`, {
@@ -220,24 +197,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAuthState({ isAuthenticated: false, user: null, accessToken: null });
   };
 
-  const hasPermission = (permission: string): boolean => {
-    return authState.user?.permissions?.includes(permission) ?? false;
-  };
-
-  const hasRole = (role: string | string[]): boolean => {
-    if (!authState.user) return false;
-    const roles = Array.isArray(role) ? role : [role];
-    return roles.includes(authState.user.role);
-  };
-
   const value = {
     authState,
     loading,
     login,
-    register,
     logout,
-    hasPermission,
-    hasRole,
     refreshAccessToken,
     authFetch,
   };
@@ -376,43 +340,6 @@ export const LoginPage: React.FC = () => {
   );
 };
 
-export const ProtectedRoute: React.FC<{
-  children: React.ReactNode;
-  requiredRole?: string | string[];
-  requiredPermission?: string;
-}> = ({ children, requiredRole, requiredPermission }) => {
-  const { authState, hasRole, hasPermission } = useAuth();
-
-  if (!authState.isAuthenticated) {
-    return <LoginPage />;
-  }
-
-  if (requiredRole && !hasRole(requiredRole)) {
-    return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold text-white mb-2">Access Denied</h1>
-          <p className="text-gray-400">You do not have the required role</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (requiredPermission && !hasPermission(requiredPermission)) {
-    return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <Lock className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold text-white mb-2">Permission Denied</h1>
-          <p className="text-gray-400">You do not have permission for this action</p>
-        </div>
-      </div>
-    );
-  }
-
-  return <>{children}</>;
-};
 
 export const UserMenu: React.FC = () => {
   const { authState, logout } = useAuth();

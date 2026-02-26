@@ -40,7 +40,7 @@ export const JobsPanel: React.FC<JobsPanelProps> = ({
                 defaultLeftWidth={68}
                 left={
                     <div className="h-full overflow-hidden flex flex-col">
-                        <div className="bg-cyber-900 border border-cyber-700 rounded-lg overflow-hidden flex flex-col h-full">
+                        <div className="glass-panel p-2 overflow-hidden flex flex-col h-full">
                             <div className="p-6 border-b border-cyber-800 flex justify-between items-center bg-cyber-950/50">
                                 <h2 className="text-xl font-bold text-emerald-400 flex items-center gap-2">
                                     <Server /> Jobs (cola + ejecución)
@@ -175,7 +175,7 @@ export const JobsPanel: React.FC<JobsPanelProps> = ({
                     </div>
                 }
                 right={
-                    <div className="h-full bg-cyber-900 border border-cyber-700 rounded-lg overflow-y-auto w-full">
+                    <div className="h-full glass-panel p-2 overflow-y-auto w-full">
                         {(() => {
                             if (!selectedJob) {
                                 return (
@@ -222,7 +222,7 @@ export const JobsPanel: React.FC<JobsPanelProps> = ({
                                         </button>
                                     </div>
 
-                                    <div className="bg-black/40 rounded-lg border border-cyber-800 p-3 font-mono text-xs">
+                                    <div className="bg-black/30 backdrop-blur-md rounded-lg border border-white/5 shadow-inner p-3 font-mono text-xs">
                                         <div className="text-gray-500 mb-2">RAW JSON</div>
                                         <pre className="whitespace-pre-wrap text-gray-200 overflow-x-auto">
                                             {JSON.stringify(selectedJob, null, 2)}
@@ -237,3 +237,4 @@ export const JobsPanel: React.FC<JobsPanelProps> = ({
         </div>
     );
 };
+

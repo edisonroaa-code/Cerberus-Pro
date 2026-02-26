@@ -7,6 +7,11 @@ import base64
 import logging
 from typing import Optional, Dict
 
+from backend.core.api_contracts import (
+    ExploitRunRequest, SessionCommandRequest, PayloadGenerateRequest,
+    LateralMovementRequest, PrivescRequest,
+)
+
 from fastapi import APIRouter, HTTPException, Depends
 
 from auth_security import get_current_user, User
@@ -44,23 +49,23 @@ async def search_exploits(
     return {"exploits": results}
 
 
-@router.post("/exploits/run")
-async def run_exploit(payload: Dict, current_user: User = Depends(get_current_user)):
+@router.post("/exploit/run")
+async def run_exploit(payload: ExploitRunRequest, current_user: User = Depends(get_current_user)):
     """Execute a Metasploit exploit module"""
     from exploits.metasploit_bridge import MetasploitBridge
-    if not payload.get("target"):
+    if not payload.target:
         raise HTTPException(400, "Target required")
 
     msf = MetasploitBridge()
     result = await msf.exploit_target(
-        module_path=payload.get("module", ""),
-        target_host=payload["target"],
-        target_port=payload.get("port", 0),
-        payload=payload.get("payload", "generic/shell_reverse_tcp"),
-        options=payload.get("options", {})
+        module_path=payload.module,
+        target_host=payload.target,
+        target_port=payload.port,
+        payload=payload.payload,
+        options=payload.options
     )
     await _broadcast_log("METASPLOIT", "WARNING" if result.get("success") else "INFO",
-                         f"Exploit {payload.get('module')} against {payload['target']}", result)
+                         f"Exploit {payload.module} against {payload.target}", result)
     return result
 
 
@@ -73,12 +78,12 @@ async def list_sessions(current_user: User = Depends(get_current_user)):
     return {"sessions": sessions}
 
 
-@router.post("/exploits/sessions/{session_id}/execute")
-async def execute_in_session(session_id: int, payload: Dict, current_user: User = Depends(get_current_user)):
+@router.post("/session/{session_id}/execute")
+async def execute_in_session(session_id: int, payload: SessionCommandRequest, current_user: User = Depends(get_current_user)):
     """Execute command in Meterpreter session"""
     from exploits.metasploit_bridge import MetasploitBridge
     msf = MetasploitBridge()
-    output = await msf.execute_in_session(session_id, payload.get("command", ""))
+    output = await msf.execute_in_session(session_id, payload.command)
     return {"output": output}
 
 
@@ -93,8 +98,8 @@ async def auto_privilege_escalation(session_id: int, current_user: User = Depend
     return result
 
 
-@router.post("/exploits/sessions/{session_id}/pivot")
-async def lateral_movement(session_id: int, payload: Dict, current_user: User = Depends(get_current_user)):
+@router.post("/session/{session_id}/lateral")
+async def lateral_movement(session_id: int, payload: LateralMovementRequest, current_user: User = Depends(get_current_user)):
     """Attempt lateral movement (stub for now)"""
     return {"status": "not_implemented", "message": "Lateral movement module coming in Phase 3"}
 
@@ -158,14 +163,14 @@ async def get_exfil_data(session_id: str, type: str = "dns", current_user: User 
 # PAYLOAD GENERATION
 # ============================================================================
 
-@router.post("/payloads/generate")
-async def generate_payload_endpoint(config: Dict, current_user: User = Depends(get_current_user)):
+@router.post("/payload/generate")
+async def generate_payload_endpoint(config: PayloadGenerateRequest, current_user: User = Depends(get_current_user)):
     """Generate obfuscated payload"""
     from payloads.payload_generator import PayloadGenerator
     generator = PayloadGenerator()
     try:
-        result = generator.generate_payload(config.get("type", ""), config.get("details", {}))
-        await _broadcast_log("PAYLOAD", "INFO", f"Generated {config.get('type')} payload", {})
+        result = generator.generate_payload(config.type, config.details)
+        await _broadcast_log("PAYLOAD", "INFO", f"Generated {config.type} payload", {})
         return result
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -211,13 +216,13 @@ async def get_privesc_suggestions(agent_id: str, current_user: User = Depends(ge
         raise HTTPException(404, "Agent not found")
 
 
-@router.post("/privesc/exploit/{agent_id}")
-async def exploit_privesc(agent_id: str, request: Dict, current_user: User = Depends(get_current_user)):
+@router.post("/privesc/{agent_id}/exploit")
+async def exploit_privesc(agent_id: str, request: PrivescRequest, current_user: User = Depends(get_current_user)):
     """Attempt privilege escalation"""
     from privesc.privesc_engine import PrivEscEngine
     c2 = _get_c2_server()
     privesc = PrivEscEngine()
-    technique = request.get("technique", "")
+    technique = request.technique
     result = await privesc.exploit_vector(agent_id, technique, c2)
     await _broadcast_log("PRIVESC", "CRITICAL", f"Escalation attempt {technique} on {agent_id}", result)
     return result
