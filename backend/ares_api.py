@@ -48,7 +48,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import asyncio
 from pydantic import BaseModel
 import subprocess
-import shlex
 import re
 import socket
 from typing import Optional, List, Dict, Any
@@ -56,11 +55,7 @@ from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 import logging
 import json
-import secrets
-import hmac
 import sys
-from urllib.parse import urlparse
-from urllib.parse import parse_qs
 from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
@@ -246,6 +241,37 @@ from core.job_persistence_runtime import (
     get_job_coverage_v1 as _job_persist_get_job_coverage_v1_impl,
     list_jobs as _job_persist_list_jobs_impl,
     update_job as _job_persist_update_job_impl,
+)
+from core.unified_queue_runtime import (
+    UnifiedQueueRuntimeDeps,
+    queue_unified_scan as _queue_unified_scan_impl,
+)
+from core.postgres_persistence_runtime import (
+    PostgresPersistenceRuntimeDeps,
+    job_count_db as _pg_job_count_db_impl,
+    job_latest_active_scan_id as _pg_job_latest_active_scan_id_impl,
+    jobs_recover_on_startup as _pg_jobs_recover_on_startup_impl,
+    persist_coverage_v1_db as _pg_persist_coverage_v1_db_impl,
+    persist_scan_artifacts_db as _pg_persist_scan_artifacts_db_impl,
+    pg_enabled as _pg_enabled_impl,
+)
+from core.job_queue_bridge_runtime import (
+    JobQueueBridgeDeps,
+    enqueue_queued_jobs as _jq_enqueue_queued_jobs_impl,
+    ensure_job_background_tasks as _jq_ensure_job_background_tasks_impl,
+    init_job_queue_backend as _jq_init_job_queue_backend_impl,
+    job_score as _jq_job_score_impl,
+    job_worker_loop as _jq_job_worker_loop_impl,
+    queue_enqueue as _jq_queue_enqueue_impl,
+    queue_pop as _jq_queue_pop_impl,
+    queue_reconciler_loop as _jq_queue_reconciler_loop_impl,
+    refresh_queue_backlog_metric as _jq_refresh_queue_backlog_metric_impl,
+    run_standalone_job_worker as _jq_run_standalone_job_worker_impl,
+    task_runtime_state as _jq_task_runtime_state_impl,
+)
+from core.omni_surface_runtime import (
+    OmniSurfaceRuntimeDeps,
+    run_omni_surface_scan as _omni_surface_scan_impl,
 )
 from core.orchestrator_fsm import Orchestrator, OrchestratorPhase
 from core.jobs_sqlite import (
@@ -581,16 +607,31 @@ async def lifespan(app: FastAPI):
     if state.proc and state.proc.returncode is None:
         _terminate_process_tree(state.proc)
 
+def _postgres_persistence_runtime_deps() -> PostgresPersistenceRuntimeDeps:
+    return PostgresPersistenceRuntimeDeps(
+        pg_store=PG_STORE,
+        jobs_db_path=JOBS_DB_PATH,
+        job_running_stale_seconds=JOB_RUNNING_STALE_SECONDS,
+        logger=logger,
+        normalize_job_kind_fn=_normalize_job_kind,
+        job_kind_candidates_fn=_job_kind_candidates,
+        job_now_fn=_job_now,
+        jobs_sqlite_count_jobs_fn=_jobs_sqlite_count_jobs,
+        jobs_sqlite_latest_active_scan_id_fn=_jobs_sqlite_latest_active_scan_id,
+        jobs_sqlite_recover_running_jobs_fn=_jobs_sqlite_recover_running_jobs_on_startup,
+    )
+
+
 def _pg_enabled() -> bool:
-    return PG_STORE is not None
+    return _pg_enabled_impl(_postgres_persistence_runtime_deps())
+
 
 def _job_count_db(*, user_id: Optional[str] = None, statuses: Optional[List[str]] = None) -> int:
-    if _pg_enabled():
-        try:
-            return int(PG_STORE.count_jobs(user_id=user_id, statuses=statuses))
-        except Exception:
-            return 0
-    return _jobs_sqlite_count_jobs(JOBS_DB_PATH, user_id=user_id, statuses=statuses)
+    return _pg_job_count_db_impl(
+        _postgres_persistence_runtime_deps(),
+        user_id=user_id,
+        statuses=statuses,
+    )
 
 
 LEGACY_JOB_KINDS = ("classic", "omni")
@@ -622,13 +663,11 @@ def _ensure_unified_cfg_aliases(cfg: dict) -> dict:
 
 
 def _job_latest_active_scan_id(user_id: str, kind: str) -> Optional[str]:
-    kinds = _job_kind_candidates(kind)
-    if _pg_enabled():
-        try:
-            return PG_STORE.latest_active_job_scan_id(user_id=str(user_id), kinds=kinds)
-        except Exception:
-            return None
-    return _jobs_sqlite_latest_active_scan_id(JOBS_DB_PATH, user_id=str(user_id), kinds=kinds)
+    return _pg_job_latest_active_scan_id_impl(
+        _postgres_persistence_runtime_deps(),
+        user_id=user_id,
+        kind=kind,
+    )
 
 def _persist_scan_artifacts_db(
     *,
@@ -650,32 +689,26 @@ def _persist_scan_artifacts_db(
     coverage: Optional[dict],
     report_data: Optional[dict],
 ):
-    if (not _pg_enabled()) or (not scan_id):
-        return
-    normalized_kind = _normalize_job_kind(kind)
-    try:
-        PG_STORE.persist_scan_artifacts(
-            scan_id=str(scan_id),
-            user_id=str(user_id),
-            kind=normalized_kind,
-            target_url=str(target_url or ""),
-            mode=(str(mode) if mode else None),
-            profile=(str(profile) if profile else None),
-            status=str(status),
-            verdict=(str(verdict) if verdict else None),
-            conclusive=conclusive,
-            vulnerable=vulnerable,
-            count=count,
-            evidence_count=evidence_count,
-            results_count=results_count,
-            message=(str(message) if message else None),
-            cfg=cfg or {},
-            coverage=coverage or {},
-            report_data=report_data or {},
-            finished_at=_job_now(),
-        )
-    except Exception as e:
-        logger.warning(f"PostgreSQL artifacts persistence failed for {scan_id}: {e}")
+    _pg_persist_scan_artifacts_db_impl(
+        _postgres_persistence_runtime_deps(),
+        scan_id=scan_id,
+        user_id=user_id,
+        kind=kind,
+        target_url=target_url,
+        mode=mode,
+        profile=profile,
+        status=status,
+        verdict=verdict,
+        conclusive=conclusive,
+        vulnerable=vulnerable,
+        count=count,
+        evidence_count=evidence_count,
+        results_count=results_count,
+        message=message,
+        cfg=cfg,
+        coverage=coverage,
+        report_data=report_data,
+    )
 
 
 def _emit_verdict_metrics(verdict: str, blockers: Optional[List[ConclusiveBlockerV1]] = None) -> None:
@@ -746,138 +779,93 @@ def _coverage_public_payload(response: CoverageResponseV1, *, legacy_reason_code
 
 
 def _persist_coverage_v1_db(coverage_response: CoverageResponseV1) -> None:
-    if not _pg_enabled():
-        return
-    try:
-        PG_STORE.persist_coverage_v1(
-            scan_id=coverage_response.scan_id,
-            version=coverage_response.version,
-            job_status=coverage_response.job_status,
-            verdict=coverage_response.verdict,
-            conclusive=coverage_response.conclusive,
-            vulnerable=coverage_response.vulnerable,
-            coverage_summary=coverage_response.coverage_summary.model_dump(),
-            conclusive_blockers=[b.model_dump() for b in coverage_response.conclusive_blockers],
-            phase_records=[p.model_dump() for p in coverage_response.phase_records],
-            vector_records=[v.model_dump(exclude={"id"}) for v in coverage_response.vector_records_page.items],
-        )
-    except Exception as e:
-        logger.warning(f"PostgreSQL coverage.v1 persistence failed for {coverage_response.scan_id}: {e}")
+    _pg_persist_coverage_v1_db_impl(_postgres_persistence_runtime_deps(), coverage_response)
 
 def _jobs_recover_on_startup():
     # If the backend restarts, any "running" job is no longer controlled.
     # For multi-instance, a different worker might still be running it, but
     # with local process execution we must fail closed.
-    if _pg_enabled():
-        try:
-            PG_STORE.recover_running_jobs(stale_seconds=JOB_RUNNING_STALE_SECONDS)
-            return
-        except Exception as e:
-            logger.warning(f"PostgreSQL recover-on-startup failed, falling back to SQLite: {e}")
+    _pg_jobs_recover_on_startup_impl(_postgres_persistence_runtime_deps())
 
-    _jobs_sqlite_recover_running_jobs_on_startup(
-        JOBS_DB_PATH,
-        stale_seconds=JOB_RUNNING_STALE_SECONDS,
-        now_iso=_job_now(),
-    )
-
-async def _init_job_queue_backend():
-    await _job_runtime_init_job_queue_backend(
+def _job_queue_bridge_deps() -> JobQueueBridgeDeps:
+    return JobQueueBridgeDeps(
         state=state,
+        logger=logger,
+        worker_id=WORKER_ID,
+        embedded_job_worker=EMBEDDED_JOB_WORKER,
         job_queue_backend=JOB_QUEUE_BACKEND,
         redis_available=_REDIS_AVAILABLE,
         redis_module=redis_async,
         redis_url=JOB_QUEUE_REDIS_URL,
-        worker_id=WORKER_ID,
-        logger=logger,
+        queue_key=JOB_QUEUE_KEY,
+        queue_reconcile_seconds=JOB_QUEUE_RECONCILE_SECONDS,
+        queue_backlog_metric=QUEUE_BACKLOG,
+        pg_store=PG_STORE,
+        jobs_db_path=JOBS_DB_PATH,
+        pg_enabled_fn=_pg_enabled,
+        job_count_db_fn=_job_count_db,
+        job_get_fn=_job_get,
+        job_now_fn=_job_now,
+        job_update_fn=_job_update,
+        normalize_job_kind_fn=_normalize_job_kind,
+        run_job_by_kind_fn=_run_job_by_kind,
+        heartbeat_loop_fn=_job_heartbeat_loop,
+        init_audit_db_fn=_init_audit_db,
+        init_jobs_db_fn=_init_jobs_db,
+        jobs_recover_on_startup_fn=_jobs_recover_on_startup,
+        jobs_sqlite_list_queued_job_ids_fn=_jobs_sqlite_list_queued_job_ids,
+        runtime_init_job_queue_backend_fn=_job_runtime_init_job_queue_backend,
+        runtime_job_score_fn=_job_runtime_job_score,
+        runtime_refresh_queue_backlog_metric_fn=_job_runtime_refresh_queue_backlog_metric,
+        runtime_queue_enqueue_fn=_job_runtime_queue_enqueue,
+        runtime_enqueue_job_memory_fn=_job_runtime_enqueue_job_memory,
+        runtime_queue_pop_fn=_job_runtime_queue_pop,
+        runtime_queue_reconciler_loop_fn=_job_runtime_queue_reconciler_loop,
+        runtime_task_runtime_state_fn=_job_runtime_task_runtime_state,
+        runtime_ensure_job_background_tasks_fn=_job_runtime_ensure_job_background_tasks,
+        worker_runner_run_standalone_worker_fn=_worker_runner_run_standalone_worker,
+        worker_loop_impl_fn=_job_worker_worker_loop,
     )
 
+
+async def _init_job_queue_backend():
+    await _jq_init_job_queue_backend_impl(_job_queue_bridge_deps())
+
+
 def _job_score(priority: int, created_at_iso: str) -> float:
-    return _job_runtime_job_score(priority, created_at_iso)
+    return _jq_job_score_impl(priority, created_at_iso, _job_queue_bridge_deps())
 
 
 async def _refresh_queue_backlog_metric() -> None:
-    await _job_runtime_refresh_queue_backlog_metric(
-        pg_enabled=_pg_enabled(),
-        pg_store=PG_STORE,
-        job_count_db=_job_count_db,
-        queue_backlog_metric=QUEUE_BACKLOG,
-    )
+    await _jq_refresh_queue_backlog_metric_impl(_job_queue_bridge_deps())
+
 
 async def _queue_enqueue(scan_id: str, *, priority: int = 0):
-    await _job_runtime_queue_enqueue(
-        state=state,
-        scan_id=scan_id,
-        priority=int(priority),
-        job_get=_job_get,
-        job_now=_job_now,
-        queue_key=JOB_QUEUE_KEY,
-        refresh_queue_backlog_metric_fn=_refresh_queue_backlog_metric,
-        enqueue_job_memory_fn=_enqueue_job_memory,
-    )
+    await _jq_queue_enqueue_impl(scan_id, priority=int(priority), deps=_job_queue_bridge_deps())
+
 
 async def _enqueue_queued_jobs():
-    # Best-effort: load queued jobs to queue backend.
-    if _pg_enabled():
-        try:
-            queued_ids = PG_STORE.list_job_ids_by_status("queued")
-        except Exception as e:
-            logger.warning(f"PostgreSQL queue sync failed, falling back to SQLite: {e}")
-            queued_ids = []
-    else:
-        queued_ids = _jobs_sqlite_list_queued_job_ids(JOBS_DB_PATH)
+    await _jq_enqueue_queued_jobs_impl(_job_queue_bridge_deps())
 
-    for scan_id in queued_ids:
-        try:
-            job = _job_get(str(scan_id)) or {}
-            await _queue_enqueue(str(scan_id), priority=int(job.get("priority") or 0))
-        except Exception:
-            continue
-
-def _enqueue_job_memory(scan_id: str):
-    _job_runtime_enqueue_job_memory(state=state, queue_backlog_metric=QUEUE_BACKLOG, scan_id=scan_id)
 
 async def _queue_pop(timeout_seconds: int = 2) -> Optional[str]:
-    return await _job_runtime_queue_pop(
-        state=state,
-        timeout_seconds=int(timeout_seconds),
-        queue_key=JOB_QUEUE_KEY,
-        queue_backlog_metric=QUEUE_BACKLOG,
-        refresh_queue_backlog_metric_fn=_refresh_queue_backlog_metric,
-    )
+    return await _jq_queue_pop_impl(timeout_seconds, _job_queue_bridge_deps())
+
 
 async def _queue_reconciler_loop():
-    await _job_runtime_queue_reconciler_loop(
-        reconcile_seconds=JOB_QUEUE_RECONCILE_SECONDS,
-        enqueue_queued_jobs_fn=_enqueue_queued_jobs,
-    )
+    await _jq_queue_reconciler_loop_impl(_job_queue_bridge_deps())
+
 
 def _task_runtime_state(task: Optional[asyncio.Task]) -> dict:
-    return _job_runtime_task_runtime_state(task)
+    return _jq_task_runtime_state_impl(task, _job_queue_bridge_deps())
+
 
 async def _ensure_job_background_tasks(force: bool = False) -> List[str]:
-    return await _job_runtime_ensure_job_background_tasks(
-        state=state,
-        embedded_job_worker=EMBEDDED_JOB_WORKER,
-        force=bool(force),
-        job_worker_loop_fn=_job_worker_loop,
-        queue_reconciler_loop_fn=_queue_reconciler_loop,
-    )
+    return await _jq_ensure_job_background_tasks_impl(force, _job_queue_bridge_deps())
+
 
 async def run_standalone_job_worker(stop_event: Optional[asyncio.Event] = None):
-    await _worker_runner_run_standalone_worker(
-        state=state,
-        logger=logger,
-        worker_id=WORKER_ID,
-        job_queue_backend=JOB_QUEUE_BACKEND,
-        stop_event=stop_event,
-        init_audit_db_fn=_init_audit_db,
-        init_jobs_db_fn=_init_jobs_db,
-        init_job_queue_backend_fn=_init_job_queue_backend,
-        jobs_recover_on_startup_fn=_jobs_recover_on_startup,
-        enqueue_queued_jobs_fn=_enqueue_queued_jobs,
-        ensure_job_background_tasks_fn=_ensure_job_background_tasks,
-    )
+    await _jq_run_standalone_job_worker_impl(stop_event=stop_event, deps=_job_queue_bridge_deps())
 
 def _payload_for_user_id(user_id: str) -> JWTPayload:
     return _worker_identity_build_worker_payload(
@@ -891,20 +879,7 @@ def _payload_for_user_id(user_id: str) -> JWTPayload:
     )
 
 async def _job_worker_loop():
-    async def _queue_pop_bridge(timeout_seconds: int) -> Optional[str]:
-        return await _queue_pop(timeout_seconds=timeout_seconds)
-
-    await _job_worker_worker_loop(
-        state=state,
-        queue_pop_fn=_queue_pop_bridge,
-        job_get=_job_get,
-        normalize_job_kind=_normalize_job_kind,
-        job_update=_job_update,
-        job_now=_job_now,
-        worker_id=WORKER_ID,
-        run_job_by_kind_fn=_run_job_by_kind,
-        heartbeat_loop_fn=_job_heartbeat_loop,
-    )
+    await _jq_job_worker_loop_impl(_job_queue_bridge_deps())
 
 
 def _normalize_classic_to_unified_cfg(cfg: dict) -> dict:
@@ -1265,470 +1240,69 @@ async def broadcast_log(component: str, level: str, msg: str, metadata: Optional
         "timestamp": datetime.now(timezone.utc).isoformat()
     })
 
-async def run_omni_surface_scan(user_id: str, cfg: dict):
-    """Phase 2+3: polymorphic evasion + multi-surface orchestration."""
-    cfg = _ensure_unified_cfg_aliases(cfg or {})
-    if cfg.get("autoPilot"):
-        cfg = _apply_autopilot_policy(
-            cfg,
-            mode=(cfg.get("mode") or "web").lower(),
-            phase=int(cfg.get("autoPilotPhase") or 1),
-        )
-    runtime_ctx = _omni_runtime_prepare_scan_context(
-        cfg=cfg,
-        user_id=str(user_id),
+def _omni_surface_runtime_deps() -> OmniSurfaceRuntimeDeps:
+    return OmniSurfaceRuntimeDeps(
         state_omni_meta=state.omni_meta,
-        allowed_vectors=OMNI_ALLOWED_VECTORS,
-    )
-    target_url = str(runtime_ctx.get("target_url") or "")
-    sql_config = dict(runtime_ctx.get("sql_config") or {})
-    mode = str(runtime_ctx.get("mode") or "web")
-    omni_cfg = dict(runtime_ctx.get("omni_cfg") or {})
-    max_parallel = int(runtime_ctx.get("max_parallel") or 4)
-    engine_scan_enabled = bool(runtime_ctx.get("engine_scan_enabled"))
-    configured_engine_list = list(runtime_ctx.get("configured_engine_list") or [])
-    requested_sqlmap_vectors = [str(v).upper() for v in (runtime_ctx.get("requested_sqlmap_vectors") or [])]
-    is_deep = bool(runtime_ctx.get("is_deep"))
-    phases = [int(p) for p in (runtime_ctx.get("phases") or [int(cfg.get("autoPilotPhase") or 1)])]
-    strict_conclusive = bool(runtime_ctx.get("strict_conclusive"))
-    defended_by_default = bool(runtime_ctx.get("defended_by_default"))
-    scan_id = str(runtime_ctx.get("scan_id") or "")
-    scan_started_at = runtime_ctx.get("scan_started_at") or datetime.now(timezone.utc)
-    results: List[Dict[str, Any]] = []
-    final_vuln = False
-
-    defended_heuristics = _omni_runtime_compute_defended_heuristics_seed(
-        mode=mode,
-        target_url=target_url,
-        defended_by_default=defended_by_default,
-        omni_cfg=omni_cfg,
-    )
-    if mode in ("web", "graphql") and defended_by_default:
-        try:
-            http_heuristics = await suspect_defended_target(target_url)
-            defended_heuristics = _omni_runtime_merge_defended_heuristics(
-                defended_heuristics, http_heuristics
-            )
-            if defended_heuristics.get("suspected"):
-                await broadcast_log(
-                    "ORQUESTADOR",
-                    "INFO",
-                    f"Defended-by-default: señales heurísticas detectadas {defended_heuristics.get('reasons')}",
-                    {"reasons": defended_heuristics.get("reasons")},
-                )
-        except Exception:
-            defended_heuristics = {"suspected": False, "reasons": []}
-
-    deduped_requested_engines = _omni_runtime_build_requested_engines(
-        mode=mode,
-        requested_sqlmap_vectors=requested_sqlmap_vectors,
-        omni_cfg=omni_cfg,
-        engine_scan_enabled=engine_scan_enabled,
-        configured_engine_list=configured_engine_list,
-    )
-
-    coverage_ledger = CoverageLedger(
-        scan_id=scan_id,
-        target_url=(target_url or mode or "unknown"),
-        budget_max_time_ms=max(1000, int(SCAN_TIMEOUT_TOTAL_SECONDS) * 1000),
-        budget_max_retries=max(1, len(phases)),
-        budget_max_parallel=max(1, max_parallel),
-        budget_max_phase_time_ms=max(1000, int((SCAN_TIMEOUT_TOTAL_SECONDS * 1000) / max(1, len(phases)))),
-        engines_requested=deduped_requested_engines,
-    )
-    coverage_ledger.vectors_requested = {eng: [eng] for eng in deduped_requested_engines}
-
-    orchestrator = Orchestrator(scan_id=scan_id, target_url=(target_url or mode or "unknown"))
-    phases_ran: List[int] = []
-    waf_preset_last: Optional[str] = None
-    bypass_attempted = False
-    bypass_cookie_obtained = False
-    persisted_cookie_header = str(
-        ((state.omni_meta.get(user_id) or {}).get("session_cookie") or "")
-    ).strip()
-    preflight_summary: Dict[str, Any] = {
-        "ok": True,
-        "checked": [],
-        "missing": [],
-        "executed": [],
-    }
-
-    async def _mark_phase(phase: OrchestratorPhase, note: str, status: str = "completed") -> None:
-        try:
-            coverage_ledger.add_phase_record(
-                PhaseCompletionRecord(
-                    phase=str(phase.value if hasattr(phase, "value") else phase),
-                    status=str(status),
-                    duration_ms=0,
-                    start_time=datetime.now(timezone.utc),
-                    end_time=datetime.now(timezone.utc),
-                    items_processed=0,
-                    items_failed=0,
-                    notes=[str(note)] if note else [],
-                )
-            )
-        except Exception:
-            pass
-
-    async def _run_registered_engines_unified() -> None:
-        nonlocal final_vuln, preflight_summary
-
-        def _inc_preflight_fail(dep: str) -> None:
-            try:
-                PREFLIGHT_FAIL_TOTAL.labels(dependency=str(dep)).inc()
-            except Exception:
-                pass
-
-        found = await _omni_engine_run_registered_engines_unified(
-            target_url=target_url,
-            omni_cfg=omni_cfg,
-            configured_engine_list=configured_engine_list,
-            results=results,
-            coverage_ledger=coverage_ledger,
-            preflight_summary=preflight_summary,
-            build_engine_vectors_for_target_fn=_omni_runtime_build_engine_vectors_for_target,
-            broadcast_log_fn=broadcast_log,
-            conclusive_blocker_cls=ConclusiveBlocker,
-            preflight_fail_inc_fn=_inc_preflight_fail,
-        )
-        final_vuln = bool(final_vuln or found)
-
-    if mode in ("web", "graphql"):
-        web_exec = await _omni_web_execute_mode_phases(
-            user_id=str(user_id),
-            cfg=cfg,
-            target_url=str(target_url),
-            sql_config=dict(sql_config or {}),
-            omni_cfg=dict(omni_cfg or {}),
-            max_parallel=int(max_parallel),
-            requested_sqlmap_vectors=[str(v).upper() for v in requested_sqlmap_vectors],
-            phases=[int(p) for p in phases],
-            is_deep=bool(is_deep),
-            defended_heuristics=dict(defended_heuristics or {}),
-            persisted_cookie_header=str(persisted_cookie_header or ""),
-            state_omni_meta=state.omni_meta,
-            python_exec=(sys.executable or "python"),
-            sqlmap_path=SQLMAP_PATH,
-            calibration_waf_detect_fn=calibration_waf_detect,
-            polymorphic_evasion_cls=PolymorphicEvasionEngine,
-            differential_validator_cls=DifferentialResponseValidator,
-            browser_stealth_cls=BrowserStealth,
-            build_vector_commands_fn=build_vector_commands,
-            run_sqlmap_vector_fn=run_sqlmap_vector,
-            broadcast_log_fn=broadcast_log,
-            engine_registry=engine_registry,
-        )
-        results = list(web_exec.get("results") or [])
-        phases_ran = [int(p) for p in (web_exec.get("phases_ran") or [])]
-        final_vuln = bool(web_exec.get("final_vuln"))
-        waf_preset_last = (
-            str(web_exec.get("waf_preset_last"))
-            if web_exec.get("waf_preset_last") is not None
-            else None
-        )
-        bypass_attempted = bool(web_exec.get("bypass_attempted"))
-        bypass_cookie_obtained = bool(web_exec.get("bypass_cookie_obtained"))
-        persisted_cookie_header = str(web_exec.get("persisted_cookie_header") or "")
-        if engine_scan_enabled:
-            await _run_registered_engines_unified()
-    else:
-        def _inc_preflight_fail_nonweb(dep: str) -> None:
-            try:
-                PREFLIGHT_FAIL_TOTAL.labels(dependency=str(dep)).inc()
-            except Exception:
-                pass
-
-        nonweb_exec = await _omni_nonweb_execute_mode(
-            mode=mode,
-            cfg=cfg,
-            omni_cfg=omni_cfg,
-            results=results,
-            final_vuln=bool(final_vuln),
-            preflight_summary=preflight_summary,
-            coverage_ledger=coverage_ledger,
-            execution_phase=OrchestratorPhase.EXECUTION,
-            mark_phase_fn=_mark_phase,
-            preflight_fail_inc_fn=_inc_preflight_fail_nonweb,
-            direct_db_reachability_fn=direct_db_reachability,
-            websocket_exploit_fn=websocket_exploit,
-            mqtt_exploit_fn=mqtt_exploit,
-            grpc_deep_fuzz_probe_fn=grpc_deep_fuzz_probe,
-        )
-        results = list(nonweb_exec.get("results") or results)
-        final_vuln = bool(nonweb_exec.get("final_vuln"))
-        for phase_id in (nonweb_exec.get("phases_ran") or []):
-            phases_ran.append(int(phase_id))
-        preflight_summary = dict(nonweb_exec.get("preflight_summary") or preflight_summary)
-
-    # Fill executed_vectors for coverage report
-    executed_vectors = list(set([r.get("vector", "UNKNOWN") for r in results]))
-    
-    # Log progress to state for UI polling compatibility
-    if user_id in state.omni_meta:
-        state.omni_meta[user_id]["completed_vectors"] = len(results)
-        state.omni_meta[user_id]["total_vectors"] = len(results)
-        state.omni_meta[user_id]["last_message"] = "Orquestación sincronizada completada."
-
-    # Skip legacy loop as we already have synchronized results
-
-    # Final Report Generation (outside phase loop)
-    if not scan_id:
-        scan_id = str((state.omni_meta.get(user_id) or {}).get("scan_id") or "")
-    analysis = _omni_runtime_analyze_results_for_verdict(
-        results=results,
-        requested_sqlmap_vectors=requested_sqlmap_vectors,
         omni_allowed_vectors=OMNI_ALLOWED_VECTORS,
-        mode=mode,
-        target_url=target_url,
-        omni_cfg=omni_cfg,
-        final_vuln=bool(final_vuln),
-        strict_conclusive=bool(strict_conclusive),
-        is_deep=bool(is_deep),
-        phases_ran=phases_ran,
-        phases=phases,
-        waf_preset_last=waf_preset_last,
-        bypass_attempted=bool(bypass_attempted),
-        bypass_cookie_obtained=bool(bypass_cookie_obtained),
-        coverage_deps_missing=(coverage_ledger.deps_missing or []),
+        scan_timeout_total_seconds=SCAN_TIMEOUT_TOTAL_SECONDS,
+        sqlmap_path=SQLMAP_PATH,
+        history_dir=HISTORY_DIR,
+        history_store_plain=bool(HISTORY_STORE_PLAIN),
+        canonical_job_kind=CANONICAL_JOB_KIND,
+        preflight_fail_total=PREFLIGHT_FAIL_TOTAL,
+        logger=logger,
+        python_exec=(sys.executable or "python"),
+        ensure_unified_cfg_aliases_fn=_ensure_unified_cfg_aliases,
+        apply_autopilot_policy_fn=_apply_autopilot_policy,
+        prepare_scan_context_fn=_omni_runtime_prepare_scan_context,
+        compute_defended_heuristics_seed_fn=_omni_runtime_compute_defended_heuristics_seed,
+        suspect_defended_target_fn=suspect_defended_target,
+        merge_defended_heuristics_fn=_omni_runtime_merge_defended_heuristics,
+        build_requested_engines_fn=_omni_runtime_build_requested_engines,
+        run_registered_engines_unified_fn=_omni_engine_run_registered_engines_unified,
+        build_engine_vectors_for_target_fn=_omni_runtime_build_engine_vectors_for_target,
+        web_execute_mode_phases_fn=_omni_web_execute_mode_phases,
+        nonweb_execute_mode_fn=_omni_nonweb_execute_mode,
+        analyze_results_for_verdict_fn=_omni_runtime_analyze_results_for_verdict,
+        finalize_coverage_fn=_omni_finalize_coverage,
+        coverage_public_payload_fn=_coverage_public_payload,
+        emit_verdict_metrics_fn=_emit_verdict_metrics,
+        record_phase_durations_fn=_record_phase_durations_from_coverage,
+        record_job_duration_fn=_record_job_duration,
+        broadcast_fn=broadcast,
+        broadcast_log_fn=broadcast_log,
+        calibration_waf_detect_fn=calibration_waf_detect,
+        build_vector_commands_fn=build_vector_commands,
+        run_sqlmap_vector_fn=run_sqlmap_vector,
+        direct_db_reachability_fn=direct_db_reachability,
+        websocket_exploit_fn=websocket_exploit,
+        mqtt_exploit_fn=mqtt_exploit,
+        grpc_deep_fuzz_probe_fn=grpc_deep_fuzz_probe,
+        make_history_paths_fn=_omni_history_make_history_paths,
+        target_slug_fn=_target_slug,
+        build_history_data_fn=_omni_history_build_history_data,
+        set_evidence_count_fn=_omni_history_set_evidence_count,
+        synthesize_structured_findings_fn=synthesize_structured_findings,
+        persist_scan_artifacts_db_fn=_persist_scan_artifacts_db,
+        persist_coverage_v1_db_fn=_persist_coverage_v1_db,
+        persist_history_json_fn=_omni_history_persist_history_json,
+        persist_encrypted_artifact_fn=_omni_history_persist_encrypted_artifact,
+        job_update_fn=_job_update,
+        job_now_fn=_job_now,
+        coverage_ledger_cls=CoverageLedger,
+        conclusive_blocker_cls=ConclusiveBlocker,
+        phase_completion_record_cls=PhaseCompletionRecord,
+        orchestrator_cls=Orchestrator,
+        orchestrator_phase=OrchestratorPhase,
+        polymorphic_evasion_cls=PolymorphicEvasionEngine,
+        differential_validator_cls=DifferentialResponseValidator,
+        browser_stealth_cls=BrowserStealth,
+        engine_registry=engine_registry,
     )
-    results_count = int(analysis.get("results_count") or 0)
-    evidence_count = int(analysis.get("evidence_count") or 0)
-    failed_vectors = [str(v) for v in (analysis.get("failed_vectors") or [])]
-    exception_count = int(analysis.get("exception_count") or 0)
-    present_vectors = {str(v).upper() for v in (analysis.get("present_vectors") or set())}
-    missing_requested = [str(v) for v in (analysis.get("missing_requested") or [])]
-    sqlmap_tested_params = set(analysis.get("sqlmap_tested_params") or set())
-    sqlmap_no_forms_found = bool(analysis.get("sqlmap_no_forms_found"))
-    sqlmap_missing_parameters = bool(analysis.get("sqlmap_missing_parameters"))
-    sqlmap_explicit_not_injectable = bool(analysis.get("sqlmap_explicit_not_injectable"))
-    inputs_tested = bool(analysis.get("inputs_tested"))
-    reasons = [str(code) for code in (analysis.get("reasons") or [])]
-    merged_missing_deps = [str(dep) for dep in (analysis.get("merged_missing_deps") or [])]
 
-    for blocker in (coverage_ledger.conclusive_blockers or []):
-        code = f"{blocker.category}:{blocker.detail}"
-        if code not in reasons:
-            reasons.append(code)
 
-    requested_verdict = (
-        "VULNERABLE"
-        if final_vuln
-        else ("NO_VULNERABLE" if len(reasons) == 0 else "INCONCLUSIVE")
-    )
-
-    finalized = await _omni_finalize_coverage(
-        coverage_ledger=coverage_ledger,
-        results=results,
-        executed_vectors=executed_vectors,
-        present_vectors=present_vectors,
-        mode=mode,
-        sqlmap_tested_params=sqlmap_tested_params,
-        sqlmap_explicit_not_injectable=sqlmap_explicit_not_injectable,
-        failed_vectors=failed_vectors,
-        merged_missing_deps=merged_missing_deps,
-        phases_ran=phases_ran,
-        reasons=reasons,
-        scan_started_at=scan_started_at,
-        deduped_requested_engines=deduped_requested_engines,
-        preflight_summary=preflight_summary,
-        exception_count=exception_count,
-        final_vuln=bool(final_vuln),
-        requested_verdict=requested_verdict,
-        scan_id=str(scan_id or ""),
-        orchestrator=orchestrator,
-        mark_phase_fn=_mark_phase,
-        verdict_phase=OrchestratorPhase.VERDICT,
-    )
-    coverage_response = finalized["coverage_response"]
-    verdict = str(finalized["verdict"])
-    conclusive = bool(finalized["conclusive"])
-    final_vuln = bool(finalized["final_vuln"])
-    msg = str(finalized["msg"])
-    orchestrator_report = finalized["orchestrator_report"]
-
-    coverage = {
-        "kind": CANONICAL_JOB_KIND,
-        "scan_id": scan_id or None,
-        "mode": mode,
-        "strict_conclusive": strict_conclusive,
-        "deep_audit": is_deep,
-        "phases_requested": phases,
-        "phases_ran": phases_ran,
-        "vectors_requested": requested_sqlmap_vectors,
-        "missing_vectors": missing_requested,
-        "failed_vectors": sorted(list(set(failed_vectors)))[:50],
-        "missing_dependencies": merged_missing_deps[:50],
-        "preflight_dependencies": preflight_summary,
-        "tested_parameters_count": len(sqlmap_tested_params),
-        "tested_parameters": sorted(list(sqlmap_tested_params))[:50],
-        "explicit_not_injectable": bool(sqlmap_explicit_not_injectable),
-        "no_forms_found": bool(sqlmap_no_forms_found),
-        "missing_parameters": bool(sqlmap_missing_parameters),
-        "inputs_tested": bool(inputs_tested),
-        "waf_preset": waf_preset_last,
-        "bypass_attempted": bypass_attempted,
-        "bypass_cookie_obtained": bypass_cookie_obtained,
-        "conclusive_blockers": [b.model_dump() for b in coverage_response.conclusive_blockers],
-        "conclusive_blockers_legacy": reasons,
-        "orchestrator": orchestrator_report,
-        "ledger": {
-            "coverage_percentage": coverage_ledger.coverage_percentage(),
-            "engines_requested": coverage_ledger.engines_requested,
-            "engines_executed": coverage_ledger.engines_executed,
-            "inputs_found": coverage_ledger.inputs_found,
-            "inputs_tested": coverage_ledger.inputs_tested,
-            "inputs_failed": coverage_ledger.inputs_failed,
-            "deps_missing": coverage_ledger.deps_missing,
-            "status": coverage_ledger.status,
-            "total_duration_ms": coverage_ledger.total_duration_ms,
-        },
-        **_coverage_public_payload(coverage_response, legacy_reason_codes=reasons),
-    }
-    _emit_verdict_metrics(verdict, coverage_response.conclusive_blockers)
-    _record_phase_durations_from_coverage(coverage)
-    _record_job_duration(CANONICAL_JOB_KIND, coverage)
-
-    report = {
-        "type": "report",
-        "mode": mode,
-        "vulnerable": final_vuln,
-        "count": len(results),
-        "msg": "AUDITORÍA PROFUNDA COMPLETADA" if is_deep else f"OMNI {mode.upper()} COMPLETADO",
-        "data": results,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "intelligence": {
-            "is_deep": is_deep,
-            "max_phase": (max(phases_ran) if phases_ran else int(cfg.get("autoPilotPhase") or 1))
-        }
-    }
-    report.update({
-        "kind": CANONICAL_JOB_KIND,
-        "scan_id": scan_id,
-        "verdict": verdict,
-        "conclusive": conclusive,
-        "results_count": results_count,
-        "evidence_count": evidence_count,
-        "coverage": coverage,
-    })
-    report["msg"] = msg
-    await broadcast(report)
-    await broadcast_log("ORQUESTADOR", "SUCCESS", "Auditoría finalizada" if is_deep else "Escaneo finalizado")
-    state.omni_meta[user_id]["current_vector"] = None
-    state.omni_meta[user_id]["last_message"] = "completed"
-
-    # PERSISTENCE: Save report to history + update job row (if any).
-    try:
-        filename, filepath, history_timestamp = _omni_history_make_history_paths(
-            scan_id=str(scan_id or ""),
-            target_url=str(target_url or ""),
-            mode=str(mode),
-            history_dir=HISTORY_DIR,
-            target_slug_fn=_target_slug,
-            now=datetime.now(timezone.utc),
-        )
-        history_data = _omni_history_build_history_data(
-            filename=filename,
-            timestamp_iso=history_timestamp,
-            target=(target_url or mode),
-            mode=str(mode),
-            profile=cfg.get("profile"),
-            vulnerable=bool(final_vuln),
-            verdict=str(verdict),
-            conclusive=bool(conclusive),
-            count=int(results_count),
-            data=list(results or []),
-            coverage=dict(coverage or {}),
-            config=dict(cfg or {}),
-        )
-        _omni_history_set_evidence_count(history_data, evidence_count)
-
-        # Attempt to synthesize structured findings (PoC, confidence, dbms) from raw engine results
-        try:
-            structured = synthesize_structured_findings(target_url or mode, results or [])
-            history_data["structured_findings"] = structured
-        except Exception as synth_err:
-            history_data["structured_findings_error"] = str(synth_err)
-
-        _persist_scan_artifacts_db(
-            scan_id=str(scan_id or ""),
-            user_id=str(user_id),
-            kind=CANONICAL_JOB_KIND,
-            target_url=str(target_url or mode or ""),
-            mode=str(mode),
-            profile=(str(cfg.get("profile")) if cfg.get("profile") is not None else None),
-            status="completed",
-            verdict=verdict,
-            conclusive=bool(conclusive),
-            vulnerable=bool(final_vuln),
-            count=int(results_count),
-            evidence_count=int(evidence_count),
-            results_count=int(results_count),
-            message=msg,
-            cfg=cfg,
-            coverage=coverage,
-            report_data=history_data,
-        )
-        _persist_coverage_v1_db(coverage_response)
-
-        _omni_history_persist_history_json(
-            filepath=filepath,
-            filename=filename,
-            history_data=history_data,
-            store_plain=bool(HISTORY_STORE_PLAIN),
-        )
-
-        try:
-            from encryption import encrypt_report, get_encryption_key
-            encrypted_file = _omni_history_persist_encrypted_artifact(
-                filepath=filepath,
-                history_data=history_data,
-                encrypt_report_fn=encrypt_report,
-                get_encryption_key_fn=get_encryption_key,
-            )
-            logger.info(f"🔐 Encrypted report saved: {encrypted_file}")
-        except Exception as enc_err:
-            logger.warning(f"⚠️ Encryption failed: {enc_err}")
-
-        logger.info(f"💾 Omni scan guardado en historial: {filename}")
-
-        # Update job row if this run is worker-owned.
-        if scan_id:
-            job_vulnerable = (1 if verdict == "VULNERABLE" else (0 if verdict == "NO_VULNERABLE" else None))
-            _job_update(
-                scan_id,
-                status="completed",
-                finished_at=_job_now(),
-                result_filename=filename,
-                vulnerable=job_vulnerable,
-                error=None,
-            )
-        return {
-            "scan_id": scan_id,
-            "verdict": verdict,
-            "conclusive": bool(conclusive),
-            "vulnerable": bool(final_vuln),
-            "coverage": coverage,
-            "data": results,
-            "results_count": int(results_count),
-            "evidence_count": int(evidence_count),
-        }
-    except Exception as exc:
-        if user_id in state.omni_meta:
-            state.omni_meta[user_id]["last_error"] = str(exc)
-            state.omni_meta[user_id]["last_message"] = "error"
-        if scan_id:
-            _job_update(scan_id, status="failed", finished_at=_job_now(), error=str(exc))
-        return {
-            "scan_id": scan_id,
-            "verdict": "INCONCLUSIVE",
-            "conclusive": False,
-            "vulnerable": False,
-            "coverage": {},
-            "data": [],
-            "results_count": 0,
-            "evidence_count": 0,
-            "error": str(exc),
-        }
+async def run_omni_surface_scan(user_id: str, cfg: dict):
+    return await _omni_surface_scan_impl(user_id, cfg, deps=_omni_surface_runtime_deps())
 
 def _pending_jobs_count(user_id: str) -> int:
     return _job_count_db(user_id=str(user_id), statuses=["queued", "running"])
@@ -1741,80 +1315,36 @@ def _normalize_unified_scan_cfg(raw_cfg: dict) -> dict:
     return _scan_utils_normalize_unified_scan_cfg(raw_cfg, allowed_vectors=OMNI_ALLOWED_VECTORS)
 
 
+def _scan_start_metric_inc(kind: str) -> None:
+    SCAN_START_TOTAL.labels(kind=str(kind or "unknown")).inc()
+
+
+def _unified_queue_runtime_deps() -> UnifiedQueueRuntimeDeps:
+    return UnifiedQueueRuntimeDeps(
+        canonical_job_kind=CANONICAL_JOB_KIND,
+        autopilot_max_phase=AUTOPILOT_MAX_PHASE,
+        normalize_unified_scan_cfg_fn=_normalize_unified_scan_cfg,
+        validate_omni_config_fn=validate_omni_config,
+        read_unified_runtime_cfg_fn=_read_unified_runtime_cfg,
+        validate_target_fn=validate_target,
+        validate_network_host_fn=validate_network_host,
+        pending_jobs_count_fn=_pending_jobs_count,
+        job_create_fn=_job_create,
+        queue_enqueue_fn=_queue_enqueue,
+        ensure_job_background_tasks_fn=_ensure_job_background_tasks,
+        scan_start_metric_inc_fn=_scan_start_metric_inc,
+        audit_log_fn=audit_log,
+        logger=logger,
+    )
+
+
 async def _queue_unified_scan(request: Request, current_user: JWTPayload, *, source_endpoint: str) -> dict:
-    body = await request.json()
-    raw_cfg = body.get("config", {}) or {}
-    if "unified" not in raw_cfg and "omni" in raw_cfg:
-        raise HTTPException(status_code=400, detail="Hard break activo: usa config.unified (config.omni no soportado)")
-    cfg = _normalize_unified_scan_cfg(raw_cfg)
-    target_url = str(cfg.get("url", "") or "")
-    mode = validate_omni_config(cfg)
-    unified_cfg = _read_unified_runtime_cfg(cfg)
-
-    if mode in ("web", "graphql") and not validate_target(target_url, current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Target not allowed or is private IP"
-        )
-    if mode == "direct_db":
-        db_cfg = (unified_cfg.get("directDb", {}) or {})
-        if not validate_network_host(str(db_cfg.get("host", ""))):
-            raise HTTPException(status_code=403, detail="Direct DB host blocked by policy")
-    if mode == "ws":
-        ws_url = str(unified_cfg.get("wsUrl", ""))
-        ws_host = urlparse(ws_url).hostname or ""
-        if not ws_host or not validate_network_host(ws_host):
-            raise HTTPException(status_code=403, detail="WebSocket host blocked by policy")
-    if mode == "mqtt":
-        mqtt_host = str((unified_cfg.get("mqtt", {}) or {}).get("host", ""))
-        if not validate_network_host(mqtt_host):
-            raise HTTPException(status_code=403, detail="MQTT host blocked by policy")
-    if mode == "grpc":
-        grpc_host = str((unified_cfg.get("grpc", {}) or {}).get("host", ""))
-        if not validate_network_host(grpc_host):
-            raise HTTPException(status_code=403, detail="gRPC host blocked by policy")
-
-    max_pending = int(os.environ.get("MAX_PENDING_JOBS_PER_USER", "3"))
-    if _pending_jobs_count(current_user.sub) >= max_pending:
-        raise HTTPException(status_code=409, detail=f"Too many pending jobs (limit={max_pending})")
-
-    scan_id = secrets.token_urlsafe(12)
-    _job_create(
-        scan_id=scan_id,
-        user_id=current_user.sub,
-        kind=CANONICAL_JOB_KIND,
-        status="queued",
-        phase=int(cfg.get("autoPilotPhase") or 1),
-        max_phase=AUTOPILOT_MAX_PHASE,
-        autopilot=bool(cfg.get("autoPilot")),
-        target_url=target_url or mode,
-        cfg=cfg,
-        pid=None,
-        priority=int(cfg.get("priority") or 0),
+    return await _queue_unified_scan_impl(
+        request=request,
+        current_user=current_user,
+        source_endpoint=source_endpoint,
+        deps=_unified_queue_runtime_deps(),
     )
-    await _queue_enqueue(scan_id, priority=int(cfg.get("priority") or 0))
-    await _ensure_job_background_tasks()
-    SCAN_START_TOTAL.labels(kind=CANONICAL_JOB_KIND).inc()
-
-    logger.info(f"🧾 Unified job queued by {current_user.username} scan_id={scan_id} mode={mode} source={source_endpoint}")
-    await audit_log(
-        user_id=current_user.sub,
-        action="scan_unified_queued",
-        resource_type="scan",
-        resource_id=scan_id,
-        after={"mode": mode, "url": target_url, "kind": CANONICAL_JOB_KIND, "source_endpoint": source_endpoint, "config": cfg},
-        status="success"
-    )
-
-    return {
-        "message": "Unified job queued",
-        "mode": mode,
-        "scan_id": scan_id,
-        "status": "queued",
-        "kind": "unified",
-        "canonical_endpoint": "/scan/start",
-        "source_endpoint": source_endpoint,
-    }
 
 
 @app.post("/scan/start")
