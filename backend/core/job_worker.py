@@ -13,25 +13,26 @@ async def job_heartbeat_loop(
     *,
     heartbeat_seconds: int,
     worker_id: str,
-    job_get: Callable[[str], Optional[dict]],
-    job_update: Callable[..., None],
+    job_get: Callable[[str], Awaitable[Optional[dict]]],
+    job_update: Callable[..., Awaitable[None]],
     job_now: Callable[[], str],
 ) -> None:
     while True:
         await asyncio.sleep(max(3, int(heartbeat_seconds)))
-        job = job_get(scan_id) or {}
+        job = await job_get(scan_id)
+        job = job or {}
         if str(job.get("status") or "") != "running":
             return
-        job_update(scan_id, heartbeat_at=job_now(), worker_id=worker_id)
+        await job_update(scan_id, heartbeat_at=job_now(), worker_id=worker_id)
 
 
 async def job_worker_loop(
     *,
     state: Any,
     queue_pop_fn: Callable[[int], Awaitable[Optional[str]]],
-    job_get: Callable[[str], Optional[dict]],
+    job_get: Callable[[str], Awaitable[Optional[dict]]],
     normalize_job_kind: Callable[[Any], str],
-    job_update: Callable[..., None],
+    job_update: Callable[..., Awaitable[None]],
     job_now: Callable[[], str],
     worker_id: str,
     run_job_by_kind_fn: Callable[[str, str, str, dict], Awaitable[None]],
@@ -46,7 +47,7 @@ async def job_worker_loop(
                 state.cancelled_jobs.discard(scan_id)
                 continue
 
-            job = job_get(scan_id)
+            job = await job_get(scan_id)
             if not job:
                 continue
             if str(job.get("status")) != "queued":
@@ -58,7 +59,7 @@ async def job_worker_loop(
 
             attempts = int(job.get("attempts") or 0) + 1
             now_iso = job_now()
-            job_update(
+            await job_update(
                 scan_id,
                 status="running",
                 started_at=now_iso,
@@ -85,7 +86,7 @@ async def job_worker_loop(
                 state.running_kind_by_user.pop(user_id, None)
         except Exception as exc:
             try:
-                job_update(scan_id, status="failed", finished_at=job_now(), error=str(exc))
+                await job_update(scan_id, status="failed", finished_at=job_now(), error=str(exc))
             except Exception:
                 pass
         finally:

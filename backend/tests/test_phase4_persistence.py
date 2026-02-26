@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 from backend.core.scan_manager import ScanManager
 from backend.core.orchestrator_fsm import OrchestratorPhase
 from backend.core.coverage_ledger import CoverageStatus
@@ -33,7 +33,8 @@ async def test_scan_manager_persistence_call():
         manager = ScanManager(target_url=target_url, scan_id=scan_id)
         
         # Mock de _persist_metrics para verificar la llamada
-        manager._persist_metrics = MagicMock(side_effect=asyncio.sleep(0))
+        # _persist_metrics es una corutina, asi que side_effect debe devolver un awaitable o usamos AsyncMock
+        manager._persist_metrics = AsyncMock()
         
         await manager.run_scan()
         
@@ -66,6 +67,9 @@ async def test_persist_metrics_logic():
     
     # Mock de PG_STORE
     mock_pg = MagicMock()
+    # persist_coverage_v1 must be awaitable now
+    mock_pg.persist_coverage_v1 = AsyncMock()
+
     with patch("backend.ares_api.PG_STORE", mock_pg):
         await manager._persist_metrics(ledger)
         
@@ -82,8 +86,6 @@ async def test_scan_manager_full_ledger_population():
     """Verifica que el ledger se pueble correctamente durante las fases."""
     target_url = "http://test-full.com"
     scan_id = "test_scan_full"
-    
-    from unittest.mock import AsyncMock
     
     with patch("backend.core.scan_manager.get_policy_engine") as mock_policy, \
          patch("backend.core.scan_manager.get_reporter") as mock_reporter:

@@ -51,14 +51,14 @@ async def refresh_queue_backlog_metric(
     *,
     pg_enabled: bool,
     pg_store: Any,
-    job_count_db: Callable[..., int],
+    job_count_db: Callable[..., Awaitable[int]],
     queue_backlog_metric: Any,
 ) -> None:
     try:
         if pg_enabled:
-            queued = int(pg_store.count_jobs(statuses=["queued"]))
+            queued = int(await pg_store.count_jobs(statuses=["queued"]))
         else:
-            queued = int(job_count_db(statuses=["queued"]))
+            queued = int(await job_count_db(statuses=["queued"]))
         queue_backlog_metric.set(max(0, queued))
     except Exception:
         return
@@ -77,7 +77,7 @@ async def queue_enqueue(
     state: Any,
     scan_id: str,
     priority: int,
-    job_get: Callable[[str], Optional[dict]],
+    job_get: Callable[[str], Awaitable[Optional[dict]]],
     job_now: Callable[[], str],
     queue_key: str,
     refresh_queue_backlog_metric_fn: Callable[[], Awaitable[None]],
@@ -88,7 +88,8 @@ async def queue_enqueue(
         await refresh_queue_backlog_metric_fn()
         return
 
-    job = job_get(scan_id) or {}
+    job = await job_get(scan_id)
+    job = job or {}
     score = job_score(int(priority), str(job.get("created_at") or job_now()))
     # ZADD is idempotent for existing members.
     await state.redis.zadd(queue_key, {scan_id: score})

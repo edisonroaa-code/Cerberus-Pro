@@ -177,7 +177,7 @@ class ScanManager:
             else:
                 verdict = "NO_VULNERABLE"
 
-            PG_STORE.persist_coverage_v1(
+            await PG_STORE.persist_coverage_v1(
                 scan_id=ledger.scan_id,
                 version="coverage.v1",
                 job_status=ledger.status,
