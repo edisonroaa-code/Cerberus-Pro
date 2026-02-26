@@ -28,6 +28,17 @@ interface TokenResponse {
 }
 
 const AuthContext = React.createContext<any>(null);
+const AUTH_FETCH_TIMEOUT_MS = 12000;
+
+const fetchWithTimeout = async (input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = AUTH_FETCH_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [authState, setAuthState] = useState<AuthState>({
@@ -50,7 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setAuthState({ isAuthenticated: false, user: null, accessToken: null });
         return;
       }
-      const response = await fetch(`${API_BASE_URL}/auth/me`, {
+      const response = await fetchWithTimeout(`${API_BASE_URL}/auth/me`, {
         credentials: 'include',
       });
       if (!response.ok) {
@@ -76,7 +87,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     refreshPromiseRef.current = (async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        const response = await fetchWithTimeout(`${API_BASE_URL}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
         });
@@ -115,7 +126,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       (mergedInit.headers as Record<string, string>)['Authorization'] = `Bearer ${authState.accessToken}`;
     }
 
-    let response = await fetch(input, mergedInit);
+    let response = await fetchWithTimeout(input, mergedInit);
     if (response.status !== 401) {
       return response;
     }
@@ -132,14 +143,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       },
     };
     (retryInit.headers as Record<string, string>)['Authorization'] = `Bearer ${refreshedToken}`;
-    response = await fetch(input, retryInit);
+    response = await fetchWithTimeout(input, retryInit);
     return response;
   };
 
   const login = async (username: string, password: string, mfaCode?: string): Promise<'success' | 'mfa_required' | 'error'> => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      const response = await fetchWithTimeout(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -176,7 +187,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const register = async (userData: any) => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/register`, {
+      const response = await fetchWithTimeout(`${API_BASE_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -198,7 +209,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
-      await fetch(`${API_BASE_URL}/auth/logout`, {
+      await fetchWithTimeout(`${API_BASE_URL}/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });

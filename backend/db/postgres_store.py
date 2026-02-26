@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,7 +57,11 @@ class PostgresStore:
         return cls(database_url=dsn)
 
     def _connect(self):
-        return psycopg.connect(self.database_url, row_factory=dict_row)  # type: ignore[arg-type]
+        connect_timeout_sec = int(os.environ.get("PG_CONNECT_TIMEOUT_SEC", "3") or "3")
+        kwargs: Dict[str, Any] = {"row_factory": dict_row}
+        if connect_timeout_sec > 0:
+            kwargs["connect_timeout"] = connect_timeout_sec
+        return psycopg.connect(self.database_url, **kwargs)  # type: ignore[arg-type]
 
     def ensure_schema(self) -> None:
         migrations_dir = Path(__file__).resolve().parent / "migrations"

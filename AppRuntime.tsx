@@ -622,7 +622,7 @@ const App: React.FC = () => {
             if (!backendReady) {
                 if (!warnedBackendDown) {
                     warnedBackendDown = true;
-                    addLog('SISTEMA', 'WARN', 'Backend no disponible. Inicia el backend en http://127.0.0.1:8001');
+                    addLog('SISTEMA', 'WARN', `Backend no disponible. Inicia el backend en ${API_BASE_URL}`);
                 }
                 if (retryCount < maxRetries) {
                     retryCount++;
