@@ -6,7 +6,6 @@ Full PHASE 1 Security Implementation
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends, Query, status
 from fastapi.responses import JSONResponse
-from starlette.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 try:
@@ -97,23 +96,12 @@ from core.coverage_ledger import (
     PhaseCompletionRecord,
 )
 from core.coverage_contract_v1 import (
-    COVERAGE_SCHEMA_VERSION_V1,
     ConclusiveBlockerV1,
     CoverageResponseV1,
-    CoverageSummaryV1,
-    CoveragePhaseRecordV1,
-    CoverageVectorRecordV1,
-    VectorRecordsPageV1,
-    adapt_legacy_blockers,
-    issue_verdict_v1,
 )
 from core.coverage_mapper import (
     _build_default_vector_page as _coverage_mapper_build_default_vector_page,
     _coverage_public_payload as _coverage_mapper_public_payload,
-    _safe_phase_notes as _coverage_mapper_safe_phase_notes,
-    _safe_phase_status as _coverage_mapper_safe_phase_status,
-    _to_phase_records_v1 as _coverage_mapper_to_phase_records_v1,
-    _to_vector_records_v1 as _coverage_mapper_to_vector_records_v1,
 )
 from core.audit_chain_store import (
     append_audit_chain as _audit_store_append_audit_chain,
@@ -124,7 +112,6 @@ from core.job_runtime import (
     ensure_job_background_tasks as _job_runtime_ensure_job_background_tasks,
     enqueue_job_memory as _job_runtime_enqueue_job_memory,
     init_job_queue_backend as _job_runtime_init_job_queue_backend,
-    job_score as _job_runtime_job_score,
     queue_enqueue as _job_runtime_queue_enqueue,
     queue_pop as _job_runtime_queue_pop,
     queue_reconciler_loop as _job_runtime_queue_reconciler_loop,
@@ -140,13 +127,10 @@ from core.job_kind import (
     normalize_job_kind as _normalize_job_kind_impl,
 )
 from core.job_config_norm import (
-    normalize_classic_to_unified_cfg as _job_cfg_normalize_classic_to_unified_cfg,
     normalize_unified_job_cfg as _job_cfg_normalize_unified_job_cfg,
 )
 from core.process_guard import (
     host_allowed as _process_guard_host_allowed,
-    is_ip as _process_guard_is_ip,
-    normalize_host as _process_guard_normalize_host,
     start_sqlmap_process as _process_guard_start_sqlmap_process,
     terminate_process_tree as _process_guard_terminate_process_tree,
 )
@@ -235,19 +219,15 @@ from core.job_execution_runtime import (
 )
 from core.job_persistence_runtime import (
     JobPersistenceRuntimeDeps,
-    create_job as _job_persist_create_job_impl,
-    fallback_coverage_response_from_job as _job_persist_fallback_coverage_response_from_job_impl,
-    get_job as _job_persist_get_job_impl,
-    get_job_coverage_v1 as _job_persist_get_job_coverage_v1_impl,
-    list_jobs as _job_persist_list_jobs_impl,
-    update_job as _job_persist_update_job_impl,
 )
+from core.job_persistence_facade import JobPersistenceFacade
 from core.unified_queue_runtime import (
     UnifiedQueueRuntimeDeps,
     queue_unified_scan as _queue_unified_scan_impl,
 )
 from core.postgres_persistence_runtime import (
     PostgresPersistenceRuntimeDeps,
+    init_jobs_db as _pg_init_jobs_db_impl,
     job_count_db as _pg_job_count_db_impl,
     job_latest_active_scan_id as _pg_job_latest_active_scan_id_impl,
     jobs_recover_on_startup as _pg_jobs_recover_on_startup_impl,
@@ -260,7 +240,6 @@ from core.job_queue_bridge_runtime import (
     enqueue_queued_jobs as _jq_enqueue_queued_jobs_impl,
     ensure_job_background_tasks as _jq_ensure_job_background_tasks_impl,
     init_job_queue_backend as _jq_init_job_queue_backend_impl,
-    job_score as _jq_job_score_impl,
     job_worker_loop as _jq_job_worker_loop_impl,
     queue_enqueue as _jq_queue_enqueue_impl,
     queue_pop as _jq_queue_pop_impl,
@@ -272,6 +251,13 @@ from core.job_queue_bridge_runtime import (
 from core.omni_surface_runtime import (
     OmniSurfaceRuntimeDeps,
     run_omni_surface_scan as _omni_surface_scan_impl,
+)
+from core.api_surface_ops_runtime import (
+    ApiSurfaceOpsDeps,
+    http_exception_payload as _api_surface_http_exception_payload_impl,
+    metrics_payload as _api_surface_metrics_payload_impl,
+    scan_capabilities_payload as _api_surface_scan_capabilities_payload_impl,
+    setup_playwright_payload as _api_surface_setup_playwright_payload_impl,
 )
 from core.orchestrator_fsm import Orchestrator, OrchestratorPhase
 from core.jobs_sqlite import (
@@ -291,15 +277,12 @@ from core.scan_utils import (
     OMNI_ALLOWED_MODES,
     OMNI_ALLOWED_VECTORS,
     _apply_autopilot_policy as _scan_utils_apply_autopilot_policy,
-    _autopilot_difficulty as _scan_utils_autopilot_difficulty,
     _default_unified_vectors_from_cfg as _scan_utils_default_unified_vectors_from_cfg,
     _ensure_unified_cfg_aliases as _scan_utils_ensure_unified_cfg_aliases,
-    _merge_tampers as _scan_utils_merge_tampers,
     _normalize_unified_scan_cfg as _scan_utils_normalize_unified_scan_cfg,
     _read_unified_runtime_cfg as _scan_utils_read_unified_runtime_cfg,
     _safe_history_path as _scan_utils_safe_history_path,
     _target_slug as _scan_utils_target_slug,
-    _validate_host_port as _scan_utils_validate_host_port,
     validate_omni_config as _scan_utils_validate_omni_config,
 )
 from core.worker_runner import run_standalone_worker as _worker_runner_run_standalone_worker
@@ -617,6 +600,7 @@ def _postgres_persistence_runtime_deps() -> PostgresPersistenceRuntimeDeps:
         job_kind_candidates_fn=_job_kind_candidates,
         job_now_fn=_job_now,
         jobs_sqlite_count_jobs_fn=_jobs_sqlite_count_jobs,
+        jobs_sqlite_init_jobs_db_fn=_jobs_sqlite_init_jobs_db,
         jobs_sqlite_latest_active_scan_id_fn=_jobs_sqlite_latest_active_scan_id,
         jobs_sqlite_recover_running_jobs_fn=_jobs_sqlite_recover_running_jobs_on_startup,
     )
@@ -654,12 +638,8 @@ def _job_kind_candidates(kind: Any) -> List[str]:
     )
 
 
-def _read_unified_runtime_cfg(cfg: dict) -> dict:
-    return _scan_utils_read_unified_runtime_cfg(cfg)
-
-
-def _ensure_unified_cfg_aliases(cfg: dict) -> dict:
-    return _scan_utils_ensure_unified_cfg_aliases(cfg)
+_read_unified_runtime_cfg = _scan_utils_read_unified_runtime_cfg
+_ensure_unified_cfg_aliases = _scan_utils_ensure_unified_cfg_aliases
 
 
 def _job_latest_active_scan_id(user_id: str, kind: str) -> Optional[str]:
@@ -754,28 +734,8 @@ def _record_job_duration(kind: str, coverage: Dict[str, Any]) -> None:
         return
 
 
-def _build_default_vector_page(limit: int = 50, cursor: int = 0) -> VectorRecordsPageV1:
-    return _coverage_mapper_build_default_vector_page(limit=limit, cursor=cursor)
-
-
-def _safe_phase_status(raw_status: Any) -> str:
-    return _coverage_mapper_safe_phase_status(raw_status)
-
-
-def _safe_phase_notes(notes: Any) -> List[str]:
-    return _coverage_mapper_safe_phase_notes(notes)
-
-
-def _to_phase_records_v1(records: Optional[List[Any]]) -> List[CoveragePhaseRecordV1]:
-    return _coverage_mapper_to_phase_records_v1(records)
-
-
-def _to_vector_records_v1(records: Optional[List[Any]]) -> List[CoverageVectorRecordV1]:
-    return _coverage_mapper_to_vector_records_v1(records)
-
-
-def _coverage_public_payload(response: CoverageResponseV1, *, legacy_reason_codes: Optional[List[str]] = None) -> Dict[str, Any]:
-    return _coverage_mapper_public_payload(response, legacy_reason_codes=legacy_reason_codes)
+_build_default_vector_page = _coverage_mapper_build_default_vector_page
+_coverage_public_payload = _coverage_mapper_public_payload
 
 
 def _persist_coverage_v1_db(coverage_response: CoverageResponseV1) -> None:
@@ -815,7 +775,6 @@ def _job_queue_bridge_deps() -> JobQueueBridgeDeps:
         jobs_recover_on_startup_fn=_jobs_recover_on_startup,
         jobs_sqlite_list_queued_job_ids_fn=_jobs_sqlite_list_queued_job_ids,
         runtime_init_job_queue_backend_fn=_job_runtime_init_job_queue_backend,
-        runtime_job_score_fn=_job_runtime_job_score,
         runtime_refresh_queue_backlog_metric_fn=_job_runtime_refresh_queue_backlog_metric,
         runtime_queue_enqueue_fn=_job_runtime_queue_enqueue,
         runtime_enqueue_job_memory_fn=_job_runtime_enqueue_job_memory,
@@ -830,10 +789,6 @@ def _job_queue_bridge_deps() -> JobQueueBridgeDeps:
 
 async def _init_job_queue_backend():
     await _jq_init_job_queue_backend_impl(_job_queue_bridge_deps())
-
-
-def _job_score(priority: int, created_at_iso: str) -> float:
-    return _jq_job_score_impl(priority, created_at_iso, _job_queue_bridge_deps())
 
 
 async def _refresh_queue_backlog_metric() -> None:
@@ -880,10 +835,6 @@ def _payload_for_user_id(user_id: str) -> JWTPayload:
 
 async def _job_worker_loop():
     await _jq_job_worker_loop_impl(_job_queue_bridge_deps())
-
-
-def _normalize_classic_to_unified_cfg(cfg: dict) -> dict:
-    return _job_cfg_normalize_classic_to_unified_cfg(cfg)
 
 
 def _normalize_unified_job_cfg(kind: str, cfg: dict) -> dict:
@@ -989,17 +940,10 @@ def _start_sqlmap_process(cmd: List[str]) -> subprocess.Popen:
 def _terminate_process_tree(proc: Optional[subprocess.Popen]):
     _process_guard_terminate_process_tree(proc)
 
-def _normalize_host(host: str) -> str:
-    return _process_guard_normalize_host(host)
-
-def _is_ip(value: str) -> bool:
-    return _process_guard_is_ip(value)
-
 def _host_allowed(host: str) -> bool:
     return _process_guard_host_allowed(host, ALLOWED_TARGETS)
 
-def _target_slug(url: str) -> str:
-    return _scan_utils_target_slug(url)
+_target_slug = _scan_utils_target_slug
 
 def _safe_history_path(filename: str) -> str:
     return _scan_utils_safe_history_path(HISTORY_DIR, filename)
@@ -1009,14 +953,7 @@ def _init_audit_db():
 
 
 def _init_jobs_db():
-    if _pg_enabled():
-        try:
-            PG_STORE.ensure_schema()
-            logger.info("🗄️ PostgreSQL schema ready (jobs/scans/ledgers/verdicts)")
-            return
-        except Exception as e:
-            logger.warning(f"PostgreSQL init failed, falling back to SQLite: {e}")
-    _jobs_sqlite_init_jobs_db(JOBS_DB_PATH)
+    _pg_init_jobs_db_impl(_postgres_persistence_runtime_deps())
 
 
 def _job_now() -> str:
@@ -1040,58 +977,16 @@ def _job_persistence_runtime_deps() -> JobPersistenceRuntimeDeps:
         logger=logger,
     )
 
-
-def _job_create(*, scan_id: str, user_id: str, kind: str, status: str, phase: int, max_phase: int, autopilot: bool, target_url: str, cfg: dict, pid: Optional[int] = None, priority: int = 0):
-    _job_persist_create_job_impl(
-        scan_id=scan_id,
-        user_id=user_id,
-        kind=kind,
-        status=status,
-        phase=int(phase),
-        max_phase=int(max_phase),
-        autopilot=bool(autopilot),
-        target_url=str(target_url),
-        cfg=(cfg or {}),
-        pid=pid,
-        priority=int(priority),
-        deps=_job_persistence_runtime_deps(),
-        job_now_fn=_job_now,
-    )
-
-
-def _job_update(scan_id: str, **fields):
-    _job_persist_update_job_impl(
-        scan_id=str(scan_id),
-        deps=_job_persistence_runtime_deps(),
-        fields=(fields or {}),
-    )
-
-
-def _job_get(scan_id: str) -> Optional[dict]:
-    return _job_persist_get_job_impl(str(scan_id), deps=_job_persistence_runtime_deps())
-
-
-def _job_list(user_id: str, limit: int = 30) -> List[dict]:
-    return _job_persist_list_jobs_impl(str(user_id), limit=int(limit), deps=_job_persistence_runtime_deps())
-
-
-def _fallback_coverage_response_from_job(job: Dict[str, Any], scan_id: str, *, limit: int, cursor: int) -> CoverageResponseV1:
-    return _job_persist_fallback_coverage_response_from_job_impl(
-        job=job,
-        scan_id=str(scan_id),
-        limit=int(limit),
-        cursor=int(cursor),
-        deps=_job_persistence_runtime_deps(),
-    )
-
-
-def _job_get_coverage_v1(scan_id: str, *, limit: int, cursor: int) -> Optional[CoverageResponseV1]:
-    return _job_persist_get_job_coverage_v1_impl(
-        str(scan_id),
-        limit=int(limit),
-        cursor=int(cursor),
-        deps=_job_persistence_runtime_deps(),
-    )
+_job_persistence_facade = JobPersistenceFacade(
+    deps_factory=_job_persistence_runtime_deps,
+    job_now_fn=_job_now,
+)
+_job_create = _job_persistence_facade.create_job
+_job_update = _job_persistence_facade.update_job
+_job_get = _job_persistence_facade.get_job
+_job_list = _job_persistence_facade.list_jobs
+_fallback_coverage_response_from_job = _job_persistence_facade.fallback_coverage_response_from_job
+_job_get_coverage_v1 = _job_persistence_facade.get_job_coverage_v1
 
 
 def _append_audit_chain(log_entry: AuditLog):
@@ -1201,27 +1096,14 @@ def validate_network_host(host: str) -> bool:
         ),
     )
 
-def sanitize_line(line: str) -> str:
-    return _log_output_sanitize_line(line)
-
-def translate_log(line: str) -> str:
-    return _log_output_translate_log(line)
-
-def _merge_tampers(current: str, incoming: List[str]) -> str:
-    return _scan_utils_merge_tampers(current, incoming)
-
-
-def _autopilot_difficulty(cfg: dict) -> str:
-    return _scan_utils_autopilot_difficulty(cfg)
+sanitize_line = _log_output_sanitize_line
+translate_log = _log_output_translate_log
 
 
 from autopilot_utils import detect_defensive_measures
 
 def _apply_autopilot_policy(cfg: dict, mode: str, phase: int = 1) -> dict:
     return _scan_utils_apply_autopilot_policy(cfg, mode, phase)
-
-def _validate_host_port(host: str, port: int, label: str):
-    return _scan_utils_validate_host_port(host, port, label)
 
 def validate_omni_config(cfg: dict):
     return _scan_utils_validate_omni_config(
@@ -1357,24 +1239,23 @@ async def start_scan(
     return await _queue_unified_scan(request, current_user, source_endpoint="/scan/start")
 
 
+def _api_surface_ops_deps() -> ApiSurfaceOpsDeps:
+    return ApiSurfaceOpsDeps(
+        omni_allowed_modes=OMNI_ALLOWED_MODES,
+        omni_allowed_vectors=OMNI_ALLOWED_VECTORS,
+        running_kind_values=state.running_kind_by_user.values(),
+        normalize_job_kind_fn=_normalize_job_kind,
+        canonical_job_kind=CANONICAL_JOB_KIND,
+        active_omni_scans_metric=ACTIVE_OMNI_SCANS,
+        generate_latest_fn=generate_latest,
+        content_type_latest=CONTENT_TYPE_LATEST,
+        logger=logger,
+        browser_stealth_cls=BrowserStealth,
+    )
+
+
 def _scan_capabilities_payload() -> Dict[str, Any]:
-    return {
-        "modes": sorted(list(OMNI_ALLOWED_MODES)),
-        "vectors": sorted(list(OMNI_ALLOWED_VECTORS)),
-        "limits": {
-            "max_parallel_min": 1,
-            "max_parallel_max": 8
-        },
-        "notes": {
-            "grpc": "Deep fuzzing active (Reflection + Discovery)",
-            "nosql": "MongoDB & Redis injection patterns",
-            "evasion_2026": "Cloudflare/Akamai/AWS specific presets active",
-            "ssti": "Template injection probes (Jinja2, Twig, etc.)",
-            "oob": "DNS/ICMP tunneling implemented via sqlmap backend",
-            "pivoting": "Tor & Proxy support active",
-            "chaining": "Automatic environment extraction after confirmed vuln"
-        }
-    }
+    return _api_surface_scan_capabilities_payload_impl(_api_surface_ops_deps())
 
 
 @app.get("/scan/capabilities")
@@ -1383,9 +1264,7 @@ async def scan_capabilities(current_user: JWTPayload = Depends(require_permissio
 
 @app.get("/metrics")
 async def metrics(current_user: JWTPayload = Depends(require_permission(Permission.ADMIN_AUDIT))):
-    worker_based = sum(1 for k in state.running_kind_by_user.values() if _normalize_job_kind(k) == CANONICAL_JOB_KIND)
-    ACTIVE_OMNI_SCANS.set(int(worker_based))
-    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+    return _api_surface_metrics_payload_impl(_api_surface_ops_deps())
 
 @app.post("/setup/playwright")
 @limiter.limit("5/minute")
@@ -1394,13 +1273,10 @@ async def setup_playwright(
     current_user: JWTPayload = Depends(require_permission(Permission.SCAN_CREATE))
 ):
     """Trigger manual browser installation for Playwright/Omni-Surface."""
-    from v4_omni_surface import BrowserStealth
-    logger.info(f"🛠️ Playwright setup triggered by {current_user.username}")
-    success = await BrowserStealth.ensure_browsers()
-    if success:
-        return {"message": "Navegadores instalados exitosamente"}
-    else:
-        raise HTTPException(status_code=500, detail="Fallo en la instalacion de navegadores")
+    return await _api_surface_setup_playwright_payload_impl(
+        username=str(current_user.username),
+        deps=_api_surface_ops_deps(),
+    )
 
 def _cleanup_classic_scan_runtime(user_id: str) -> None:
     state.active_scans.pop(user_id, None)
@@ -1693,10 +1569,7 @@ async def get_status(current_user: JWTPayload = Depends(get_current_user)):
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     """Custom error response"""
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"detail": exc.detail, "timestamp": datetime.now(timezone.utc).isoformat()}
-    )
+    return _api_surface_http_exception_payload_impl(exc)
 
 if __name__ == "__main__":
     import uvicorn

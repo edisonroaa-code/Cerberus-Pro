@@ -37,7 +37,6 @@ class JobQueueBridgeDeps:
     jobs_recover_on_startup_fn: Callable[[], None]
     jobs_sqlite_list_queued_job_ids_fn: Callable[[str], List[str]]
     runtime_init_job_queue_backend_fn: Callable[..., Awaitable[None]]
-    runtime_job_score_fn: Callable[[int, str], float]
     runtime_refresh_queue_backlog_metric_fn: Callable[..., Awaitable[None]]
     runtime_queue_enqueue_fn: Callable[..., Awaitable[None]]
     runtime_enqueue_job_memory_fn: Callable[..., None]
@@ -59,10 +58,6 @@ async def init_job_queue_backend(deps: JobQueueBridgeDeps) -> None:
         worker_id=deps.worker_id,
         logger=deps.logger,
     )
-
-
-def job_score(priority: int, created_at_iso: str, deps: JobQueueBridgeDeps) -> float:
-    return deps.runtime_job_score_fn(priority, created_at_iso)
 
 
 async def refresh_queue_backlog_metric(deps: JobQueueBridgeDeps) -> None:

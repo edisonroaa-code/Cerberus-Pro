@@ -18,6 +18,7 @@ class PostgresPersistenceRuntimeDeps:
     job_kind_candidates_fn: Callable[[Any], List[str]]
     job_now_fn: Callable[[], str]
     jobs_sqlite_count_jobs_fn: Callable[..., int]
+    jobs_sqlite_init_jobs_db_fn: Callable[[str], None]
     jobs_sqlite_latest_active_scan_id_fn: Callable[..., Optional[str]]
     jobs_sqlite_recover_running_jobs_fn: Callable[..., None]
 
@@ -143,3 +144,14 @@ def jobs_recover_on_startup(deps: PostgresPersistenceRuntimeDeps) -> None:
         stale_seconds=deps.job_running_stale_seconds,
         now_iso=deps.job_now_fn(),
     )
+
+
+def init_jobs_db(deps: PostgresPersistenceRuntimeDeps) -> None:
+    if pg_enabled(deps):
+        try:
+            deps.pg_store.ensure_schema()
+            deps.logger.info("PostgreSQL schema ready (jobs/scans/ledgers/verdicts)")
+            return
+        except Exception as exc:
+            deps.logger.warning("PostgreSQL init failed, falling back to SQLite: %s", exc)
+    deps.jobs_sqlite_init_jobs_db_fn(deps.jobs_db_path)
