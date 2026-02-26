@@ -1,0 +1,75 @@
+{
+  "target": "http://127.0.0.1:18092/",
+  "timestamp": "20260218_145025",
+  "results": [
+    {
+      "vector": "ENGINE_SQLMAP",
+      "vulnerable": false,
+      "evidence": [
+        "[14:50:24] [INFO] testing if the target URL content is stable",
+        "",
+        "[14:50:24] [WARNING] target URL content is not stable (i.e. content differs). sqlmap will base the page comparison on a sequence matcher. If no dynamic nor injectable parameters are detected, or in case of junk results, refer to user's manual paragraph 'Page comparison'",
+        "how do you want to proceed? [(C)ontinue/(s)tring/(r)egex/(q)uit] C",
+        "",
+        "[14:50:24] [INFO] searching for dynamic content",
+        "",
+        "[14:50:24] [CRITICAL] target URL content appears to be heavily dynamic. sqlmap is going to retry the request(s)",
+        "",
+        "[14:50:24] [WARNING] target URL content appears to be too dynamic. Switching to '--text-only' ",
+        "",
+        "[14:50:24] [ERROR] all tested parameters do not appear to be injectable. Try to increase values for '--level'/'--risk' options if you wish to perform more tests. If you suspect that there is some kind of protection mechanism involved (e.g. WAF) maybe you could try to use option '--tamper' (e.g. '--tamper=space2comment'), skipping to the next target",
+        "",
+        "[14:50:24] [WARNING] HTTP error codes detected during run:",
+        "503 (Service Unavailable) - 2 times, 502 (Bad Gateway) - 1 times",
+        "",
+        "[14:50:24] [INFO] you can find results of scanning in multiple targets mode inside the CSV file 'C:\\Users\\Usuario\\AppData\\Local\\sqlmap\\output\\results-02182026_0250pm.csv'",
+        "",
+        "[*] ending @ 14:50:24 /2026-02-18/",
+        ""
+      ],
+      "exit_code": 0,
+      "command": [
+        "C:\\Users\\Usuario\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+        "C:\\Users\\Usuario\\Desktop\\APLICATIVOS\\sqlmap\\backend\\..\\ares_engine\\sqlmap.py",
+        "-u",
+        "http://127.0.0.1:18092/",
+        "--batch",
+        "--disable-coloring",
+        "--answers=follow=Y,redirect=Y,resend=Y,form=Y,blank=Y,quit=N",
+        "--level=1",
+        "--risk=1",
+        "--threads=3",
+        "--random-agent",
+        "--hex",
+        "--hpp"
+      ]
+    }
+  ],
+  "structured_findings": [
+    {
+      "type": "security_misc",
+      "endpoint": "http://127.0.0.1:18092/",
+      "parameter": "",
+      "payload": "[14:50:24] [INFO] testing if the target URL content is stable",
+      "confidence": 0.4,
+      "severity": "low",
+      "evidence": [
+        "[14:50:24] [INFO] testing if the target URL content is stable",
+        "[14:50:24] [WARNING] target URL content is not stable (i.e. content differs). sqlmap will base the page comparison on a sequence matcher. If no dynamic nor injectable parameters are detected, or in case of junk results, refer to user's manual paragraph 'Page comparison'",
+        "how do you want to proceed? [(C)ontinue/(s)tring/(r)egex/(q)uit] C",
+        "[14:50:24] [INFO] searching for dynamic content",
+        "[14:50:24] [CRITICAL] target URL content appears to be heavily dynamic. sqlmap is going to retry the request(s)",
+        "[14:50:24] [WARNING] target URL content appears to be too dynamic. Switching to '--text-only' ",
+        "[14:50:24] [ERROR] all tested parameters do not appear to be injectable. Try to increase values for '--level'/'--risk' options if you wish to perform more tests. If you suspect that there is some kind of protection mechanism involved (e.g. WAF) maybe you could try to use option '--tamper' (e.g. '--tamper=space2comment'), skipping to the next target",
+        "[14:50:24] [WARNING] HTTP error codes detected during run:",
+        "503 (Service Unavailable) - 2 times, 502 (Bad Gateway) - 1 times",
+        "[14:50:24] [INFO] you can find results of scanning in multiple targets mode inside the CSV file 'C:\\Users\\Usuario\\AppData\\Local\\sqlmap\\output\\results-02182026_0250pm.csv'",
+        "[*] ending @ 14:50:24 /2026-02-18/"
+      ],
+      "engine": "ENGINE_SQLMAP",
+      "dbms": null,
+      "poctemplate": "C:\\Users\\Usuario\\AppData\\Local\\Programs\\Python\\Python312\\python.exe C:\\Users\\Usuario\\Desktop\\APLICATIVOS\\sqlmap\\backend\\..\\ares_engine\\sqlmap.py -u http://127.0.0.1:18092/ --batch --disable-coloring --answers=follow=Y,redirect=Y,resend=Y,form=Y,blank=Y,quit=N --level=1 --risk=1 --threads=3 --random-agent --hex --hpp",
+      "vector": "ENGINE_SQLMAP"
+    }
+  ]
+}

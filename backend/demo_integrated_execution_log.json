@@ -1,0 +1,250 @@
+{
+  "execution_time_sec": 0.735463,
+  "total_events": 18,
+  "jitter_changes": 3,
+  "ua_rotations": 1,
+  "waf_blocks": 1,
+  "extraction_attempts": 3,
+  "successful_extractions": 3,
+  "jitter_history": [
+    {
+      "prev": 0.05,
+      "new": 1.2,
+      "vector": "UNION"
+    },
+    {
+      "prev": 1.2,
+      "new": 0.43,
+      "vector": "ERROR"
+    },
+    {
+      "prev": 0.43,
+      "new": 1.01,
+      "vector": "post-rotation"
+    }
+  ],
+  "ua_history": [
+    {
+      "prev": "Chrome",
+      "new": "Firefox"
+    }
+  ],
+  "waf_blocks_detail": [
+    {
+      "code": 502,
+      "vector": "ERROR",
+      "ua_family": "Chrome"
+    }
+  ],
+  "extraction_results": {
+    "current_db_via_oob": {
+      "success": true,
+      "evidence": "remote_dbms_name=production_db"
+    },
+    "current_user": {
+      "success": true,
+      "evidence": "current user: www-data@localhost"
+    },
+    "database_list": {
+      "success": true,
+      "evidence": "mysql, information_schema, performance_schema, webapp_db"
+    }
+  },
+  "cookie_state": {
+    "value": "cf_clearance=abc123def456x789y; session_id=deadbeef",
+    "persisted_across": "ua_rotation"
+  },
+  "all_events": [
+    {
+      "timestamp": "2026-02-18T17:53:34.441005+00:00",
+      "elapsed_sec": 0.0,
+      "type": "phase",
+      "message": "PHASE 1: INITIAL VULNERABILITY DETECTION started",
+      "details": {
+        "phase": "Phase 1: Initial vulnerability detection",
+        "status": "started"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:34.441005+00:00",
+      "elapsed_sec": 0.0,
+      "type": "jitter",
+      "message": "\u0394+1.150s (was 0.050s, now 1.200s) for UNION",
+      "details": {
+        "prev": 0.05,
+        "new": 1.2,
+        "delta": 1.15,
+        "vector": "UNION"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:34.545454+00:00",
+      "elapsed_sec": 0.1,
+      "type": "jitter",
+      "message": "\u0394-0.770s (was 1.200s, now 0.430s) for ERROR",
+      "details": {
+        "prev": 1.2,
+        "new": 0.43,
+        "delta": -0.77,
+        "vector": "ERROR"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:34.651514+00:00",
+      "elapsed_sec": 0.21,
+      "type": "phase",
+      "message": "PHASE 1 completed",
+      "details": {
+        "phase": "Phase 1",
+        "status": "completed"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:34.651569+00:00",
+      "elapsed_sec": 0.21,
+      "type": "phase",
+      "message": "PHASE 2: WAF BLOCK DETECTION & RESPONSE started",
+      "details": {
+        "phase": "Phase 2: WAF block detection & response",
+        "status": "started"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:34.651569+00:00",
+      "elapsed_sec": 0.21,
+      "type": "waf_block",
+      "message": "HTTP 502 on ERROR with Chrome",
+      "details": {
+        "http_code": 502,
+        "vector": "ERROR",
+        "ua_family": "Chrome"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:34.867163+00:00",
+      "elapsed_sec": 0.43,
+      "type": "ua_rotate",
+      "message": "Chrome \u2192 Firefox (waf_active_blocking/502)",
+      "details": {
+        "prev_family": "Chrome",
+        "new_family": "Firefox",
+        "reason": "waf_active_blocking/502"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:34.868141+00:00",
+      "elapsed_sec": 0.43,
+      "type": "jitter",
+      "message": "\u0394+0.580s (was 0.430s, now 1.010s) for post-rotation",
+      "details": {
+        "prev": 0.43,
+        "new": 1.01,
+        "delta": 0.5800000000000001,
+        "vector": "post-rotation"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:34.869379+00:00",
+      "elapsed_sec": 0.43,
+      "type": "phase",
+      "message": "PHASE 2 completed - adapted to WAF",
+      "details": {
+        "phase": "Phase 2",
+        "status": "completed - adapted to WAF"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:34.869474+00:00",
+      "elapsed_sec": 0.43,
+      "type": "phase",
+      "message": "PHASE 3: PLAYWRIGHT BYPASS & SESSION PERSISTENCE started",
+      "details": {
+        "phase": "Phase 3: Playwright bypass & session persistence",
+        "status": "started"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:35.170870+00:00",
+      "elapsed_sec": 0.73,
+      "type": "cookie",
+      "message": "\u2713 Cookie 51 bytes (persisted across initial_bypass)",
+      "details": {
+        "cookie_len": 51,
+        "persisted_across": "initial_bypass"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:35.171391+00:00",
+      "elapsed_sec": 0.73,
+      "type": "cookie",
+      "message": "\u2713 Cookie 51 bytes (persisted across ua_rotation)",
+      "details": {
+        "cookie_len": 51,
+        "persisted_across": "ua_rotation"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:35.171391+00:00",
+      "elapsed_sec": 0.73,
+      "type": "phase",
+      "message": "PHASE 3 completed - session active",
+      "details": {
+        "phase": "Phase 3",
+        "status": "completed - session active"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:35.171391+00:00",
+      "elapsed_sec": 0.73,
+      "type": "phase",
+      "message": "PHASE 4: DATA EXTRACTION (OOB PRIORITY) started",
+      "details": {
+        "phase": "Phase 4: Data extraction (OOB priority)",
+        "status": "started"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:35.171391+00:00",
+      "elapsed_sec": 0.73,
+      "type": "extraction",
+      "message": "\u2713 current_db_via_oob: remote_dbms_name=production_db",
+      "details": {
+        "query": "current_db_via_oob",
+        "success": true,
+        "evidence": "remote_dbms_name=production_db"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:35.171391+00:00",
+      "elapsed_sec": 0.73,
+      "type": "extraction",
+      "message": "\u2713 current_user: current user: www-data@localhost",
+      "details": {
+        "query": "current_user",
+        "success": true,
+        "evidence": "current user: www-data@localhost"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:35.171391+00:00",
+      "elapsed_sec": 0.73,
+      "type": "extraction",
+      "message": "\u2713 database_list: mysql, information_schema, performance_schema, webapp_db",
+      "details": {
+        "query": "database_list",
+        "success": true,
+        "evidence": "mysql, information_schema, performance_schema, webapp_db"
+      }
+    },
+    {
+      "timestamp": "2026-02-18T17:53:35.171391+00:00",
+      "elapsed_sec": 0.73,
+      "type": "phase",
+      "message": "PHASE 4 completed - data extracted",
+      "details": {
+        "phase": "Phase 4",
+        "status": "completed - data extracted"
+      }
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "name": "Panel de Control Cerberus",
+  "description": "Interfaz avanzada de Comando y Control para el Sistema de Penetración Adaptativo Cerberus, con visualización en tiempo real, análisis de evasión mediante IA y orquestación de campañas.",
+  "requestFramePermissions": []
+}

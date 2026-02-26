@@ -1,0 +1,46 @@
+[
+  {
+    "vector": {
+      "endpoint": "/product/view",
+      "method": "GET",
+      "param_name": "id",
+      "content_type": "",
+      "server": "nginx",
+      "sample_value": "1"
+    },
+    "vuln_found": true
+  },
+  {
+    "vector": {
+      "endpoint": "/api/user",
+      "method": "POST",
+      "param_name": "username",
+      "content_type": "application/json",
+      "server": "apache",
+      "sample_value": "admin' OR '1'='1"
+    },
+    "vuln_found": true
+  },
+  {
+    "vector": {
+      "endpoint": "/search",
+      "method": "GET",
+      "param_name": "q",
+      "content_type": "",
+      "server": "nginx",
+      "sample_value": "laptop"
+    },
+    "vuln_found": false
+  },
+  {
+    "vector": {
+      "endpoint": "/health",
+      "method": "GET",
+      "param_name": "",
+      "content_type": "",
+      "server": "",
+      "sample_value": ""
+    },
+    "vuln_found": false
+  }
+]

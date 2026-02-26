@@ -1,0 +1,18 @@
+[
+  {
+    "endpoint": "/product/view",
+    "method": "GET",
+    "param_name": "id",
+    "content_type": "",
+    "server": "nginx",
+    "sample_value": "2"
+  },
+  {
+    "endpoint": "/contact",
+    "method": "POST",
+    "param_name": "message",
+    "content_type": "text/plain",
+    "server": "apache",
+    "sample_value": "hello"
+  }
+]

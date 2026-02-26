@@ -1,0 +1,14 @@
+fastapi>=0.95.0
+uvicorn[standard]>=0.22.0
+websockets>=11.0.0
+psutil>=5.9.0
+psycopg[binary]>=3.1.18
+redis>=5.2.0
+aiohttp>=3.8.0
+
+# ML + utilities for vector predictor MVP
+scikit-learn>=1.2.0
+joblib>=1.3.0
+
+# Master-level evasion: Real JA3 TLS fingerprinting and header synchronization
+curl-cffi>=0.5.9

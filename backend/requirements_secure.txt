@@ -1,0 +1,86 @@
+# Cerberus Pro - Enterprise Security Requirements
+# FASE 1: Authentication & Authorization
+
+# Core Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# Authentication & Cryptography
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.1.1
+cryptography==41.0.7
+PyJWT==2.8.0
+
+# MFA/TOTP
+pyotp==2.9.0
+qrcode[pil]==7.4.2
+Pillow==10.1.0
+
+# Database (future)
+sqlalchemy==2.0.23
+psycopg[binary]==3.2.3
+pydantic==2.5.2
+pydantic[email]==2.5.2
+
+# Security Middleware
+slowapi==0.1.9
+redis==5.2.1
+
+
+# Logging & Monitoring
+python-json-logger==2.0.7
+python-dotenv==1.0.0
+prometheus-client==0.21.1
+sentry-sdk[fastapi]==2.21.0
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2
+
+# Production
+gunicorn==21.2.0
+
+# gRPC Deep Fuzzing
+grpcio==1.60.0
+grpcio-reflection==1.60.0
+
+# Evasion & Browser Stealth
+playwright==1.41.0
+pytest-playwright==0.4.3
+
+
+
+# Logging & Monitoring
+python-json-logger==2.0.7
+python-dotenv==1.0.0
+prometheus-client==0.21.1
+sentry-sdk[fastapi]==2.21.0
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2
+
+# Production
+gunicorn==21.2.0
+
+# gRPC Deep Fuzzing
+grpcio==1.60.0
+grpcio-reflection==1.60.0
+
+# Evasion & Browser Stealth
+playwright==1.41.0
+pytest-playwright==0.4.3
+
+# Reporting
+weasyprint==60.2
+jinja2==3.1.2
+
+# Omni-Surface Exploitation
+paho-mqtt==1.6.1
+dnslib
+scapy
+websockets==12.0

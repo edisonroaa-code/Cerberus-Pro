@@ -1,0 +1,12 @@
+name: sql_injection_basic
+description: Basic SQLi chain template - escalate from injection to DB enumeration
+base_cvss: 7.5
+temporal: 0.0
+environmental: 0.0
+steps:
+  - id: s1
+    description: "Detect injectable parameter via boolean-based payloads"
+  - id: s2
+    description: "Extract version and schema via UNION-based queries"
+  - id: s3
+    description: "Attempt file read / write or command exec if possible"

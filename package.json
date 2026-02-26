@@ -1,0 +1,53 @@
+{
+  "name": "panel-de-control-cerberus",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "start": "python start_ares.py",
+    "ws-bridge": "node tools/ws-bridge/server.js",
+    "agent-runner": "node tools/agent-runner/server.cjs",
+    "backend": "uvicorn backend.ares_api:app --host 127.0.0.1 --port 8011",
+    "backend:lan": "uvicorn backend.ares_api:app --host 0.0.0.0 --port 8011",
+    "dev:core": "concurrently -k -n FRONTEND,BACKEND -c blue,green \"npm:dev\" \"cross-env ENVIRONMENT=development .venv\\Scripts\\python.exe -m uvicorn backend.ares_api:app --host 127.0.0.1 --port 8011 --reload --reload-exclude backend/history\"",
+    "dev:core:lan": "concurrently -k -n FRONTEND,BACKEND -c blue,green \"npm:dev\" \"cross-env ENVIRONMENT=development .venv\\Scripts\\python.exe -m uvicorn backend.ares_api:app --host 0.0.0.0 --port 8011 --reload --reload-exclude backend/history\"",
+    "dev:agents": "concurrently -k -n WS,AGENT -c yellow,magenta \"npm:ws-bridge\" \"npm:agent-runner\"",
+    "dev:all": "node tools/dev-all.mjs",
+    "dev:all:full": "concurrently -k -n FRONTEND,BACKEND,WS,AGENT -c blue,green,yellow,magenta \"npm:dev\" \"cross-env ENVIRONMENT=development .venv\\Scripts\\python.exe -m uvicorn backend.ares_api:app --host 127.0.0.1 --port 8011 --reload --reload-exclude backend/history\" \"npm:ws-bridge\" \"npm:agent-runner\"",
+    "dev:all:full:lan": "concurrently -k -n FRONTEND,BACKEND,WS,AGENT -c blue,green,yellow,magenta \"npm:dev\" \"cross-env ENVIRONMENT=development .venv\\Scripts\\python.exe -m uvicorn backend.ares_api:app --host 0.0.0.0 --port 8011 --reload --reload-exclude backend/history\" \"npm:ws-bridge\" \"npm:agent-runner\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "guard:recall": "python tools/recall_guard.py",
+    "guard:deprecations": "python tools/deprecation_guard.py"
+  },
+  "dependencies": {
+    "@google/genai": "^1.39.0",
+    "clsx": "^2.1.1",
+    "d3": "^7.9.0",
+    "express": "^4.18.2",
+    "jspdf": "^2.5.1",
+    "lucide-react": "^0.563.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "recharts": "^3.7.0",
+    "ws": "^8.13.0"
+  },
+  "devDependencies": {
+    "@sentry/react": "^10.38.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^8.2.0",
+    "cross-env": "^7.0.3",
+    "jsdom": "^25.0.1",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0",
+    "vitest": "^2.1.9"
+  }
+}

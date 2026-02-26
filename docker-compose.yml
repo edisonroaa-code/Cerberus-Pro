@@ -1,0 +1,90 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cerberus-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT_HOST:-5433}:5432"
+    volumes:
+      - cerberus_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: cerberus-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT_HOST:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: cerberus-api
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: development
+      RATE_LIMIT_ENABLED: "false"
+      PYTHONPATH: /app
+      EMBEDDED_JOB_WORKER: "false"
+      JOB_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/0
+      JOB_QUEUE_REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-postgres}?sslmode=disable
+      ALLOW_LOCAL_TARGETS: "true"
+    ports:
+      - "${API_PORT_HOST:-8011}:8011"
+    volumes:
+      - ./backend/history:/app/backend/history
+    command: >
+      sh -c "python backend/db/migrate.py &&
+             uvicorn backend.ares_api:app --host 0.0.0.0 --port 8011 --log-level info"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: cerberus-worker
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: development
+      PYTHONPATH: /app
+      EMBEDDED_JOB_WORKER: "false"
+      JOB_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/0
+      JOB_QUEUE_REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-postgres}?sslmode=disable
+      WORKER_ID: worker-1
+    volumes:
+      - ./backend/history:/app/backend/history
+    command: >
+      sh -c "python backend/db/migrate.py &&
+             python backend/job_worker.py"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+
+volumes:
+  cerberus_postgres_data:
