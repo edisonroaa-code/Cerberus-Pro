@@ -17,8 +17,8 @@ class JobExecutionRuntimeDeps:
     state: Any
     logger: Any
     apply_autopilot_policy_fn: Callable[[dict, str, int], dict]
-    job_get_fn: Callable[[str], Optional[dict]]
-    job_update_fn: Callable[..., None]
+    job_get_fn: Callable[[str], Awaitable[Optional[dict]]]
+    job_update_fn: Callable[..., Awaitable[None]]
     job_now_fn: Callable[[], str]
     queue_enqueue_fn: Callable[..., Awaitable[None]]
     validate_target_fn: Callable[[str, Any], bool]
@@ -51,17 +51,18 @@ async def scan_timeout_watchdog(user_id: str, timeout_seconds: int, deps: JobExe
 
 async def run_classic_job(scan_id: str, user_id: str, cfg: dict, deps: JobExecutionRuntimeDeps) -> None:
     if deps.state.proc and deps.state.proc.poll() is None:
-        job = deps.job_get_fn(scan_id) or {}
+        job = await deps.job_get_fn(scan_id)
+        job = job or {}
         attempts = int(job.get("attempts") or 0)
         if attempts >= 3:
-            deps.job_update_fn(
+            await deps.job_update_fn(
                 scan_id,
                 status="failed",
                 finished_at=deps.job_now_fn(),
                 error="engine_busy_too_many_attempts",
             )
             return
-        deps.job_update_fn(
+        await deps.job_update_fn(
             scan_id,
             status="queued",
             started_at=None,
@@ -74,11 +75,11 @@ async def run_classic_job(scan_id: str, user_id: str, cfg: dict, deps: JobExecut
     auto_pilot = bool(cfg.get("autoPilot", False))
     if auto_pilot:
         cfg = deps.apply_autopilot_policy_fn(cfg, mode="classic", phase=int(cfg.get("autoPilotPhase") or 1))
-        deps.job_update_fn(scan_id, config_json=json.dumps(cfg, ensure_ascii=False, sort_keys=True))
+        await deps.job_update_fn(scan_id, config_json=json.dumps(cfg, ensure_ascii=False, sort_keys=True))
 
     target_url = str(cfg.get("url", "") or "")
     if not deps.validate_target_fn(target_url, deps.payload_for_user_id_fn(user_id)):
-        deps.job_update_fn(scan_id, status="failed", finished_at=deps.job_now_fn(), error="target blocked by policy")
+        await deps.job_update_fn(scan_id, status="failed", finished_at=deps.job_now_fn(), error="target blocked by policy")
         return
 
     sql_config = cfg.get("sqlMap", {}) or {}
@@ -135,7 +136,7 @@ async def run_classic_job(scan_id: str, user_id: str, cfg: dict, deps: JobExecut
     try:
         deps.state.proc = deps.start_sqlmap_process_fn(cmd)
     except Exception as exc:
-        deps.job_update_fn(scan_id, status="failed", finished_at=deps.job_now_fn(), error=f"spawn failed: {exc}")
+        await deps.job_update_fn(scan_id, status="failed", finished_at=deps.job_now_fn(), error=f"spawn failed: {exc}")
         return
 
     deps.state.active_scans[user_id] = {
@@ -148,7 +149,7 @@ async def run_classic_job(scan_id: str, user_id: str, cfg: dict, deps: JobExecut
         "autoPilot": auto_pilot,
         "config": cfg,
     }
-    deps.job_update_fn(
+    await deps.job_update_fn(
         scan_id,
         pid=int(deps.state.proc.pid),
         started_at=deps.job_now_fn(),
@@ -174,20 +175,20 @@ async def run_omni_job(scan_id: str, user_id: str, cfg: dict, deps: JobExecution
             mode=(cfg.get("mode") or "web").lower(),
             phase=int(cfg.get("autoPilotPhase") or 1),
         )
-        deps.job_update_fn(scan_id, config_json=json.dumps(cfg, ensure_ascii=False, sort_keys=True))
+        await deps.job_update_fn(scan_id, config_json=json.dumps(cfg, ensure_ascii=False, sort_keys=True))
 
     deps.state.omni_meta[user_id] = dict(deps.state.omni_meta.get(user_id) or {})
     deps.state.omni_meta[user_id]["scan_id"] = scan_id
     try:
         await deps.run_omni_surface_scan_fn(user_id, cfg)
-        job = deps.job_get_fn(scan_id) or {}
+        job = await deps.job_get_fn(scan_id)
+        job = job or {}
         if job.get("status") == "running":
-            deps.job_update_fn(scan_id, status="completed", finished_at=deps.job_now_fn())
+            await deps.job_update_fn(scan_id, status="completed", finished_at=deps.job_now_fn())
     except asyncio.CancelledError:
-        deps.job_update_fn(scan_id, status="stopped", finished_at=deps.job_now_fn(), error="stopped_by_user")
+        await deps.job_update_fn(scan_id, status="stopped", finished_at=deps.job_now_fn(), error="stopped_by_user")
         raise
     except Exception as exc:
-        deps.job_update_fn(scan_id, status="failed", finished_at=deps.job_now_fn(), error=str(exc))
+        await deps.job_update_fn(scan_id, status="failed", finished_at=deps.job_now_fn(), error=str(exc))
     finally:
         deps.state.omni_meta.pop(user_id, None)
-

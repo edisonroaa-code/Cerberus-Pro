@@ -5,7 +5,7 @@ Job persistence/runtime helpers extracted from ares_api.py.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Awaitable
 
 from core.coverage_contract_v1 import (
     COVERAGE_SCHEMA_VERSION_V1,
@@ -24,7 +24,7 @@ class JobPersistenceRuntimeDeps:
     normalize_job_kind_fn: Callable[[Any], str]
     normalize_unified_scan_cfg_fn: Callable[[dict], dict]
     read_unified_runtime_cfg_fn: Callable[[dict], dict]
-    persist_scan_artifacts_db_fn: Callable[..., None]
+    persist_scan_artifacts_db_fn: Callable[..., Awaitable[None]]
     sqlite_create_job_fn: Callable[..., None]
     sqlite_update_job_fn: Callable[..., None]
     sqlite_get_job_fn: Callable[..., Optional[dict]]
@@ -33,7 +33,7 @@ class JobPersistenceRuntimeDeps:
     logger: Any
 
 
-def create_job(
+async def create_job(
     *,
     scan_id: str,
     user_id: str,
@@ -52,7 +52,7 @@ def create_job(
     normalized_kind = deps.normalize_job_kind_fn(kind)
     normalized_cfg = deps.normalize_unified_scan_cfg_fn(cfg or {})
     if deps.pg_enabled_fn():
-        deps.pg_store.create_job(
+        await deps.pg_store.create_job(
             scan_id=scan_id,
             user_id=user_id,
             kind=normalized_kind,
@@ -65,7 +65,7 @@ def create_job(
             pid=pid,
             priority=priority,
         )
-        deps.persist_scan_artifacts_db_fn(
+        await deps.persist_scan_artifacts_db_fn(
             scan_id=str(scan_id),
             user_id=str(user_id),
             kind=normalized_kind,
@@ -108,9 +108,9 @@ def create_job(
     )
 
 
-def get_job(scan_id: str, *, deps: JobPersistenceRuntimeDeps) -> Optional[dict]:
+async def get_job(scan_id: str, *, deps: JobPersistenceRuntimeDeps) -> Optional[dict]:
     if deps.pg_enabled_fn():
-        job = deps.pg_store.get_job(scan_id)
+        job = await deps.pg_store.get_job(scan_id)
         if not job:
             return None
         job["kind"] = deps.normalize_job_kind_fn(job.get("kind"))
@@ -124,7 +124,7 @@ def get_job(scan_id: str, *, deps: JobPersistenceRuntimeDeps) -> Optional[dict]:
     return out
 
 
-def update_job(
+async def update_job(
     scan_id: str,
     *,
     deps: JobPersistenceRuntimeDeps,
@@ -152,10 +152,11 @@ def update_job(
     if not updates:
         return
     if deps.pg_enabled_fn():
-        deps.pg_store.update_job(scan_id, updates)
+        await deps.pg_store.update_job(scan_id, updates)
         try:
-            job = get_job(scan_id, deps=deps) or {}
-            deps.persist_scan_artifacts_db_fn(
+            job = await get_job(scan_id, deps=deps)
+            job = job or {}
+            await deps.persist_scan_artifacts_db_fn(
                 scan_id=str(scan_id),
                 user_id=str(job.get("user_id") or ""),
                 kind=str(job.get("kind") or ""),
@@ -184,9 +185,9 @@ def update_job(
     deps.sqlite_update_job_fn(deps.jobs_db_path, scan_id=str(scan_id), updates=updates)
 
 
-def list_jobs(user_id: str, *, limit: int, deps: JobPersistenceRuntimeDeps) -> List[dict]:
+async def list_jobs(user_id: str, *, limit: int, deps: JobPersistenceRuntimeDeps) -> List[dict]:
     if deps.pg_enabled_fn():
-        rows = deps.pg_store.list_jobs(user_id=user_id, limit=limit)
+        rows = await deps.pg_store.list_jobs(user_id=user_id, limit=limit)
         for row in rows:
             row["kind"] = deps.normalize_job_kind_fn(row.get("kind"))
         return rows
@@ -262,7 +263,7 @@ def fallback_coverage_response_from_job(
     )
 
 
-def get_job_coverage_v1(
+async def get_job_coverage_v1(
     scan_id: str,
     *,
     limit: int,
@@ -271,7 +272,7 @@ def get_job_coverage_v1(
 ) -> Optional[CoverageResponseV1]:
     if deps.pg_enabled_fn():
         try:
-            raw = deps.pg_store.get_coverage_v1(scan_id=str(scan_id), limit=limit, cursor=cursor)
+            raw = await deps.pg_store.get_coverage_v1(scan_id=str(scan_id), limit=limit, cursor=cursor)
             if raw:
                 if str(raw.get("version") or "").strip() != COVERAGE_SCHEMA_VERSION_V1:
                     raw["version"] = COVERAGE_SCHEMA_VERSION_V1
@@ -280,4 +281,3 @@ def get_job_coverage_v1(
         except Exception as exc:
             deps.logger.warning(f"Coverage retrieval failed for {scan_id}: {exc}")
     return None
-

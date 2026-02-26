@@ -534,6 +534,12 @@ async def lifespan(app: FastAPI):
     """Application startup and shutdown"""
     logger.info("🔐 Cerberus Pro API starting - Security Mode ENABLED")
     _init_audit_db()
+
+    if PG_STORE:
+        await PG_STORE.open()
+        await PG_STORE.ensure_schema()
+        logger.info("🗄️ PostgreSQL pool and schema ready")
+
     _init_jobs_db()
 
     # Init optional Redis client for multi-instance job queue.
@@ -543,7 +549,7 @@ async def lifespan(app: FastAPI):
         # Recover job state on restart:
         # - running jobs cannot be resumed safely -> mark as interrupted.
         # - queued jobs are re-enqueued so the worker can continue.
-        _jobs_recover_on_startup()
+        await _jobs_recover_on_startup()
         await _enqueue_queued_jobs()
         await _ensure_job_background_tasks(force=True)
     else:
@@ -578,16 +584,18 @@ async def lifespan(app: FastAPI):
             await state.redis.aclose()
         except Exception:
             pass
+    if PG_STORE:
+        await PG_STORE.close()
     if state.proc and state.proc.returncode is None:
         _terminate_process_tree(state.proc)
 
 def _pg_enabled() -> bool:
     return PG_STORE is not None
 
-def _job_count_db(*, user_id: Optional[str] = None, statuses: Optional[List[str]] = None) -> int:
+async def _job_count_db(*, user_id: Optional[str] = None, statuses: Optional[List[str]] = None) -> int:
     if _pg_enabled():
         try:
-            return int(PG_STORE.count_jobs(user_id=user_id, statuses=statuses))
+            return int(await PG_STORE.count_jobs(user_id=user_id, statuses=statuses))
         except Exception:
             return 0
     return _jobs_sqlite_count_jobs(JOBS_DB_PATH, user_id=user_id, statuses=statuses)
@@ -621,16 +629,16 @@ def _ensure_unified_cfg_aliases(cfg: dict) -> dict:
     return _scan_utils_ensure_unified_cfg_aliases(cfg)
 
 
-def _job_latest_active_scan_id(user_id: str, kind: str) -> Optional[str]:
+async def _job_latest_active_scan_id(user_id: str, kind: str) -> Optional[str]:
     kinds = _job_kind_candidates(kind)
     if _pg_enabled():
         try:
-            return PG_STORE.latest_active_job_scan_id(user_id=str(user_id), kinds=kinds)
+            return await PG_STORE.latest_active_job_scan_id(user_id=str(user_id), kinds=kinds)
         except Exception:
             return None
     return _jobs_sqlite_latest_active_scan_id(JOBS_DB_PATH, user_id=str(user_id), kinds=kinds)
 
-def _persist_scan_artifacts_db(
+async def _persist_scan_artifacts_db(
     *,
     scan_id: str,
     user_id: str,
@@ -654,7 +662,7 @@ def _persist_scan_artifacts_db(
         return
     normalized_kind = _normalize_job_kind(kind)
     try:
-        PG_STORE.persist_scan_artifacts(
+        await PG_STORE.persist_scan_artifacts(
             scan_id=str(scan_id),
             user_id=str(user_id),
             kind=normalized_kind,
@@ -745,11 +753,11 @@ def _coverage_public_payload(response: CoverageResponseV1, *, legacy_reason_code
     return _coverage_mapper_public_payload(response, legacy_reason_codes=legacy_reason_codes)
 
 
-def _persist_coverage_v1_db(coverage_response: CoverageResponseV1) -> None:
+async def _persist_coverage_v1_db(coverage_response: CoverageResponseV1) -> None:
     if not _pg_enabled():
         return
     try:
-        PG_STORE.persist_coverage_v1(
+        await PG_STORE.persist_coverage_v1(
             scan_id=coverage_response.scan_id,
             version=coverage_response.version,
             job_status=coverage_response.job_status,
@@ -764,13 +772,13 @@ def _persist_coverage_v1_db(coverage_response: CoverageResponseV1) -> None:
     except Exception as e:
         logger.warning(f"PostgreSQL coverage.v1 persistence failed for {coverage_response.scan_id}: {e}")
 
-def _jobs_recover_on_startup():
+async def _jobs_recover_on_startup():
     # If the backend restarts, any "running" job is no longer controlled.
     # For multi-instance, a different worker might still be running it, but
     # with local process execution we must fail closed.
     if _pg_enabled():
         try:
-            PG_STORE.recover_running_jobs(stale_seconds=JOB_RUNNING_STALE_SECONDS)
+            await PG_STORE.recover_running_jobs(stale_seconds=JOB_RUNNING_STALE_SECONDS)
             return
         except Exception as e:
             logger.warning(f"PostgreSQL recover-on-startup failed, falling back to SQLite: {e}")
@@ -820,7 +828,7 @@ async def _enqueue_queued_jobs():
     # Best-effort: load queued jobs to queue backend.
     if _pg_enabled():
         try:
-            queued_ids = PG_STORE.list_job_ids_by_status("queued")
+            queued_ids = await PG_STORE.list_job_ids_by_status("queued")
         except Exception as e:
             logger.warning(f"PostgreSQL queue sync failed, falling back to SQLite: {e}")
             queued_ids = []
@@ -829,7 +837,8 @@ async def _enqueue_queued_jobs():
 
     for scan_id in queued_ids:
         try:
-            job = _job_get(str(scan_id)) or {}
+            job = await _job_get(str(scan_id))
+            job = job or {}
             await _queue_enqueue(str(scan_id), priority=int(job.get("priority") or 0))
         except Exception:
             continue
@@ -1035,12 +1044,8 @@ def _init_audit_db():
 
 def _init_jobs_db():
     if _pg_enabled():
-        try:
-            PG_STORE.ensure_schema()
-            logger.info("🗄️ PostgreSQL schema ready (jobs/scans/ledgers/verdicts)")
-            return
-        except Exception as e:
-            logger.warning(f"PostgreSQL init failed, falling back to SQLite: {e}")
+        # Schema ensure is now async and called in lifespan
+        return
     _jobs_sqlite_init_jobs_db(JOBS_DB_PATH)
 
 
@@ -1066,8 +1071,8 @@ def _job_persistence_runtime_deps() -> JobPersistenceRuntimeDeps:
     )
 
 
-def _job_create(*, scan_id: str, user_id: str, kind: str, status: str, phase: int, max_phase: int, autopilot: bool, target_url: str, cfg: dict, pid: Optional[int] = None, priority: int = 0):
-    _job_persist_create_job_impl(
+async def _job_create(*, scan_id: str, user_id: str, kind: str, status: str, phase: int, max_phase: int, autopilot: bool, target_url: str, cfg: dict, pid: Optional[int] = None, priority: int = 0):
+    await _job_persist_create_job_impl(
         scan_id=scan_id,
         user_id=user_id,
         kind=kind,
@@ -1084,20 +1089,20 @@ def _job_create(*, scan_id: str, user_id: str, kind: str, status: str, phase: in
     )
 
 
-def _job_update(scan_id: str, **fields):
-    _job_persist_update_job_impl(
+async def _job_update(scan_id: str, **fields):
+    await _job_persist_update_job_impl(
         scan_id=str(scan_id),
         deps=_job_persistence_runtime_deps(),
         fields=(fields or {}),
     )
 
 
-def _job_get(scan_id: str) -> Optional[dict]:
-    return _job_persist_get_job_impl(str(scan_id), deps=_job_persistence_runtime_deps())
+async def _job_get(scan_id: str) -> Optional[dict]:
+    return await _job_persist_get_job_impl(str(scan_id), deps=_job_persistence_runtime_deps())
 
 
-def _job_list(user_id: str, limit: int = 30) -> List[dict]:
-    return _job_persist_list_jobs_impl(str(user_id), limit=int(limit), deps=_job_persistence_runtime_deps())
+async def _job_list(user_id: str, limit: int = 30) -> List[dict]:
+    return await _job_persist_list_jobs_impl(str(user_id), limit=int(limit), deps=_job_persistence_runtime_deps())
 
 
 def _fallback_coverage_response_from_job(job: Dict[str, Any], scan_id: str, *, limit: int, cursor: int) -> CoverageResponseV1:
@@ -1110,8 +1115,8 @@ def _fallback_coverage_response_from_job(job: Dict[str, Any], scan_id: str, *, l
     )
 
 
-def _job_get_coverage_v1(scan_id: str, *, limit: int, cursor: int) -> Optional[CoverageResponseV1]:
-    return _job_persist_get_job_coverage_v1_impl(
+async def _job_get_coverage_v1(scan_id: str, *, limit: int, cursor: int) -> Optional[CoverageResponseV1]:
+    return await _job_persist_get_job_coverage_v1_impl(
         str(scan_id),
         limit=int(limit),
         cursor=int(cursor),
@@ -1649,7 +1654,7 @@ async def run_omni_surface_scan(user_id: str, cfg: dict):
         except Exception as synth_err:
             history_data["structured_findings_error"] = str(synth_err)
 
-        _persist_scan_artifacts_db(
+        await _persist_scan_artifacts_db(
             scan_id=str(scan_id or ""),
             user_id=str(user_id),
             kind=CANONICAL_JOB_KIND,
@@ -1668,7 +1673,7 @@ async def run_omni_surface_scan(user_id: str, cfg: dict):
             coverage=coverage,
             report_data=history_data,
         )
-        _persist_coverage_v1_db(coverage_response)
+        await _persist_coverage_v1_db(coverage_response)
 
         _omni_history_persist_history_json(
             filepath=filepath,
@@ -1694,7 +1699,7 @@ async def run_omni_surface_scan(user_id: str, cfg: dict):
         # Update job row if this run is worker-owned.
         if scan_id:
             job_vulnerable = (1 if verdict == "VULNERABLE" else (0 if verdict == "NO_VULNERABLE" else None))
-            _job_update(
+            await _job_update(
                 scan_id,
                 status="completed",
                 finished_at=_job_now(),
@@ -1717,7 +1722,7 @@ async def run_omni_surface_scan(user_id: str, cfg: dict):
             state.omni_meta[user_id]["last_error"] = str(exc)
             state.omni_meta[user_id]["last_message"] = "error"
         if scan_id:
-            _job_update(scan_id, status="failed", finished_at=_job_now(), error=str(exc))
+            await _job_update(scan_id, status="failed", finished_at=_job_now(), error=str(exc))
         return {
             "scan_id": scan_id,
             "verdict": "INCONCLUSIVE",
@@ -1775,11 +1780,11 @@ async def _queue_unified_scan(request: Request, current_user: JWTPayload, *, sou
             raise HTTPException(status_code=403, detail="gRPC host blocked by policy")
 
     max_pending = int(os.environ.get("MAX_PENDING_JOBS_PER_USER", "3"))
-    if _pending_jobs_count(current_user.sub) >= max_pending:
+    if await _pending_jobs_count(current_user.sub) >= max_pending:
         raise HTTPException(status_code=409, detail=f"Too many pending jobs (limit={max_pending})")
 
     scan_id = secrets.token_urlsafe(12)
-    _job_create(
+    await _job_create(
         scan_id=scan_id,
         user_id=current_user.sub,
         kind=CANONICAL_JOB_KIND,
@@ -1973,7 +1978,7 @@ app.include_router(history_router, prefix="/history", tags=["history"])
 @app.get("/scan/status")
 async def get_scan_status(current_user: JWTPayload = Depends(get_current_user)):
     """Get unified scan status."""
-    return _job_control_get_scan_status_payload_impl(
+    return await _job_control_get_scan_status_payload_impl(
         current_user_sub=str(current_user.sub),
         deps=_job_control_runtime_deps(),
     )
@@ -1981,7 +1986,7 @@ async def get_scan_status(current_user: JWTPayload = Depends(get_current_user)):
 
 @app.get("/jobs")
 async def list_jobs(current_user: JWTPayload = Depends(require_permission(Permission.SCAN_READ))):
-    return _job_control_list_jobs_payload_impl(
+    return await _job_control_list_jobs_payload_impl(
         current_user_sub=str(current_user.sub),
         deps=_job_control_runtime_deps(),
     )
@@ -1989,7 +1994,7 @@ async def list_jobs(current_user: JWTPayload = Depends(require_permission(Permis
 
 @app.get("/jobs/{scan_id}")
 async def get_job(scan_id: str, current_user: JWTPayload = Depends(require_permission(Permission.SCAN_READ))):
-    return _job_control_get_job_payload_impl(
+    return await _job_control_get_job_payload_impl(
         scan_id=str(scan_id),
         current_user_sub=str(current_user.sub),
         deps=_job_control_runtime_deps(),
@@ -2003,7 +2008,7 @@ async def get_job_coverage_v1(
     cursor: int = Query(default=0, ge=0),
     current_user: JWTPayload = Depends(require_permission(Permission.SCAN_READ)),
 ):
-    return _job_control_get_job_coverage_payload_impl(
+    return await _job_control_get_job_coverage_payload_impl(
         scan_id=str(scan_id),
         current_user_sub=str(current_user.sub),
         limit=int(limit),
@@ -2178,11 +2183,3 @@ if __name__ == "__main__":
         ssl_keyfile=os.environ.get("SSL_KEYFILE") if ENVIRONMENT == "production" else None,
         ssl_certfile=os.environ.get("SSL_CERTFILE") if ENVIRONMENT == "production" else None,
     )
-
-
-
-
-
-
-
-

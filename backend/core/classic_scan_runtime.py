@@ -42,7 +42,7 @@ class ClassicScanRuntimeDeps:
     header_scrubber_cls: Any
     start_sqlmap_process_fn: Callable[[List[str]], Any]
     terminate_process_tree_fn: Callable[[Any], None]
-    job_update_fn: Callable[..., None]
+    job_update_fn: Callable[..., Awaitable[None]]
     job_now_fn: Callable[[], str]
     canonical_job_kind: str
     coverage_public_payload_fn: Callable[..., Dict[str, Any]]
@@ -50,8 +50,8 @@ class ClassicScanRuntimeDeps:
     record_phase_durations_from_coverage_fn: Callable[[Dict[str, Any]], None]
     record_job_duration_fn: Callable[[str, Dict[str, Any]], None]
     build_multi_profile_reports_fn: Callable[..., Any]
-    persist_scan_artifacts_db_fn: Callable[..., None]
-    persist_coverage_v1_db_fn: Callable[[CoverageResponseV1], None]
+    persist_scan_artifacts_db_fn: Callable[..., Awaitable[None]]
+    persist_coverage_v1_db_fn: Callable[[CoverageResponseV1], Awaitable[None]]
     target_slug_fn: Callable[[str], str]
     history_dir: str
     history_store_plain: bool
@@ -110,7 +110,7 @@ async def start_next_phase(user_id: str, scan_info: dict, deps: ClassicScanRunti
         deps.state.proc = deps.start_sqlmap_process_fn(cmd)
         scan_info["pid"] = deps.state.proc.pid
         if scan_info.get("scan_id"):
-            deps.job_update_fn(
+            await deps.job_update_fn(
                 str(scan_info["scan_id"]),
                 pid=int(deps.state.proc.pid),
                 started_at=deps.job_now_fn(),
@@ -153,7 +153,7 @@ async def scan_reader_task(user_id: str, deps: ClassicScanRuntimeDeps) -> None:
         )
         scan_id = str(scan_info.get("scan_id") or "")
         if scan_id:
-            deps.job_update_fn(
+            await deps.job_update_fn(
                 scan_id,
                 status="failed",
                 finished_at=deps.job_now_fn(),
@@ -285,7 +285,7 @@ async def scan_reader_task(user_id: str, deps: ClassicScanRuntimeDeps) -> None:
                     scan_info["config"] = cfg
                     scan_info["phase"] = next_phase
                     if scan_info.get("scan_id"):
-                        deps.job_update_fn(str(scan_info["scan_id"]), phase=int(next_phase), status="running")
+                        await deps.job_update_fn(str(scan_info["scan_id"]), phase=int(next_phase), status="running")
                     await deps.broadcast_fn(
                         {
                             "type": "log",
@@ -304,7 +304,7 @@ async def scan_reader_task(user_id: str, deps: ClassicScanRuntimeDeps) -> None:
             elif current_phase < max_phase:
                 next_phase = current_phase + 1
                 if scan_info.get("scan_id"):
-                    deps.job_update_fn(str(scan_info["scan_id"]), phase=int(next_phase), status="running")
+                    await deps.job_update_fn(str(scan_info["scan_id"]), phase=int(next_phase), status="running")
                 deps.logger.info(
                     f"Auto-Pilot: No se hallaron vulnerabilidades en Fase {current_phase}. "
                     f"Escalando a Fase {next_phase}..."
@@ -549,7 +549,7 @@ async def scan_reader_task(user_id: str, deps: ClassicScanRuntimeDeps) -> None:
                 "profiles": profiles,
             }
 
-            deps.persist_scan_artifacts_db_fn(
+            await deps.persist_scan_artifacts_db_fn(
                 scan_id=str(scan_id or ""),
                 user_id=str(user_id),
                 kind=deps.canonical_job_kind,
@@ -572,7 +572,7 @@ async def scan_reader_task(user_id: str, deps: ClassicScanRuntimeDeps) -> None:
                 coverage=coverage,
                 report_data=history_data,
             )
-            deps.persist_coverage_v1_db_fn(coverage_response)
+            await deps.persist_coverage_v1_db_fn(coverage_response)
 
             if deps.history_store_plain:
                 with open(filepath, "w", encoding="utf-8") as f:
@@ -607,7 +607,7 @@ async def scan_reader_task(user_id: str, deps: ClassicScanRuntimeDeps) -> None:
             deps.logger.info(f"Scan guardado en historial: {filename}")
             if scan_id:
                 job_vulnerable = 1 if verdict == "VULNERABLE" else (0 if verdict == "NO_VULNERABLE" else None)
-                deps.job_update_fn(
+                await deps.job_update_fn(
                     scan_id,
                     status="completed",
                     finished_at=deps.job_now_fn(),
@@ -618,7 +618,7 @@ async def scan_reader_task(user_id: str, deps: ClassicScanRuntimeDeps) -> None:
             deps.logger.error(f"No se pudo guardar el historial: {str(save_err)}")
             scan_id = str(scan_info.get("scan_id") or "")
             if scan_id:
-                deps.job_update_fn(
+                await deps.job_update_fn(
                     scan_id,
                     status="failed",
                     finished_at=deps.job_now_fn(),
@@ -646,7 +646,7 @@ async def scan_reader_task(user_id: str, deps: ClassicScanRuntimeDeps) -> None:
         scan_info = deps.state.active_scans.get(user_id, {})
         scan_id = str(scan_info.get("scan_id") or "")
         if scan_id:
-            deps.job_update_fn(
+            await deps.job_update_fn(
                 scan_id,
                 status="failed",
                 finished_at=deps.job_now_fn(),
