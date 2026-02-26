@@ -16,6 +16,7 @@ import { computeUnifiedRiskLevel } from './utils/unifiedRisk';
 import { MOCK_FINGERPRINTS, PROFILE_RULES, DEFAULT_CONFIG, LOG_RING_MAX, ACTIVE_JOB_STATUSES, TERMINAL_JOB_STATUSES } from './config/scanDefaults';
 import { UnifiedUiConfig, UnifiedStatusMeta, UnifiedCapabilities, DEFAULT_UNIFIED_CONFIG, UNIFIED_PRESETS, type UnifiedMode, type UnifiedVector, type DirectDbEngine } from './config/unifiedConfig';
 import { AGENT_SCRIPT } from './config/agentScript';
+import { RuntimeStatusDisplay } from './components/RuntimeStatus';
 
 const StatsPanel = React.lazy(() => import('./components/StatsPanel'));
 const AttackMap = React.lazy(() => import('./components/AttackMap'));
@@ -1056,6 +1057,7 @@ ${csv}
                         <Server size={14} />
                         {agentConnected ? 'NODO ACTIVO' : 'CONECTAR NODO'}
                     </button>
+                    <RuntimeStatusDisplay />
                 </div>
             </aside>
 

@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 from backend.core.verdict_contract import VerdictStatus, VerdictDictum, VerdictReason, VERDICT_GATING_RULES
 from backend.core.coverage_ledger import CoverageLedger, ConclusiveBlocker
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class VerdictEngine:
         self.timeline.append({
             "event": event,
             "detail": detail,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         })
 
     

@@ -195,11 +195,6 @@ from core.omni_nonweb_execution import (
 from core.omni_coverage_finalize import (
     finalize_omni_coverage as _omni_finalize_coverage,
 )
-from core.classic_scan_runtime import (
-    ClassicScanRuntimeDeps,
-    scan_reader_task as _classic_scan_reader_task_impl,
-    start_next_phase as _classic_start_next_phase_impl,
-)
 from core.unified_multilevel_job import (
     UnifiedMultilevelJobDeps,
     run_unified_multilevel_job as _run_unified_multilevel_job_impl,
@@ -231,12 +226,6 @@ from core.job_control_runtime import (
     retry_job_payload as _job_control_retry_job_payload_impl,
     stop_job_payload as _job_control_stop_job_payload_impl,
     stop_scan_payload as _job_control_stop_scan_payload_impl,
-)
-from core.job_execution_runtime import (
-    JobExecutionRuntimeDeps,
-    run_classic_job as _job_exec_run_classic_job_impl,
-    run_omni_job as _job_exec_run_omni_job_impl,
-    scan_timeout_watchdog as _job_exec_scan_timeout_watchdog_impl,
 )
 from core.job_persistence_runtime import (
     JobPersistenceRuntimeDeps,
@@ -969,40 +958,6 @@ async def _job_heartbeat_loop(scan_id: str):
         job_now=_job_now,
     )
 
-def _job_execution_runtime_deps() -> JobExecutionRuntimeDeps:
-    return JobExecutionRuntimeDeps(
-        state=state,
-        logger=logger,
-        apply_autopilot_policy_fn=_apply_autopilot_policy,
-        job_get_fn=_job_get,
-        job_update_fn=_job_update,
-        job_now_fn=_job_now,
-        queue_enqueue_fn=_queue_enqueue,
-        validate_target_fn=validate_target,
-        payload_for_user_id_fn=_payload_for_user_id,
-        sqlmap_path=SQLMAP_PATH,
-        sqlmap_non_interactive_flags_fn=_sqlmap_non_interactive_flags,
-        header_scrubber_cls=HeaderScrubber,
-        start_sqlmap_process_fn=_start_sqlmap_process,
-        autopilot_max_phase=AUTOPILOT_MAX_PHASE,
-        scan_timeout_total_seconds=SCAN_TIMEOUT_TOTAL_SECONDS,
-        terminate_process_tree_fn=_terminate_process_tree,
-        broadcast_fn=broadcast,
-        scan_reader_task_fn=scan_reader_task,
-        run_omni_surface_scan_fn=run_omni_surface_scan,
-    )
-
-
-async def _run_classic_job(scan_id: str, user_id: str, cfg: dict):
-    await _job_exec_run_classic_job_impl(scan_id, user_id, cfg, _job_execution_runtime_deps())
-
-
-async def _run_omni_job(scan_id: str, user_id: str, cfg: dict):
-    await _job_exec_run_omni_job_impl(scan_id, user_id, cfg, _job_execution_runtime_deps())
-
-
-async def _scan_timeout_watchdog(user_id: str, timeout_seconds: int):
-    await _job_exec_scan_timeout_watchdog_impl(user_id, timeout_seconds, _job_execution_runtime_deps())
 
 def _start_sqlmap_process(cmd: List[str]) -> subprocess.Popen:
     return _process_guard_start_sqlmap_process(
@@ -1879,47 +1834,6 @@ def _cleanup_classic_scan_runtime(user_id: str) -> None:
         watchdog.cancel()
 
 
-def _classic_scan_runtime_deps() -> ClassicScanRuntimeDeps:
-    return ClassicScanRuntimeDeps(
-        state=state,
-        logger=logger,
-        smart_filter_cls=SmartFilterEngine,
-        finding_parser_cls=FindingParser,
-        broadcast_fn=broadcast,
-        sanitize_line_fn=sanitize_line,
-        translate_log_fn=translate_log,
-        detect_defensive_measures_fn=detect_defensive_measures,
-        autopilot_max_phase=AUTOPILOT_MAX_PHASE,
-        apply_autopilot_policy_fn=_apply_autopilot_policy,
-        sqlmap_path=SQLMAP_PATH,
-        sqlmap_non_interactive_flags_fn=_sqlmap_non_interactive_flags,
-        header_scrubber_cls=HeaderScrubber,
-        start_sqlmap_process_fn=_start_sqlmap_process,
-        terminate_process_tree_fn=_terminate_process_tree,
-        job_update_fn=_job_update,
-        job_now_fn=_job_now,
-        canonical_job_kind=CANONICAL_JOB_KIND,
-        coverage_public_payload_fn=_coverage_public_payload,
-        emit_verdict_metrics_fn=_emit_verdict_metrics,
-        record_phase_durations_from_coverage_fn=_record_phase_durations_from_coverage,
-        record_job_duration_fn=_record_job_duration,
-        build_multi_profile_reports_fn=build_multi_profile_reports,
-        persist_scan_artifacts_db_fn=_persist_scan_artifacts_db,
-        persist_coverage_v1_db_fn=_persist_coverage_v1_db,
-        target_slug_fn=_target_slug,
-        history_dir=HISTORY_DIR,
-        history_store_plain=HISTORY_STORE_PLAIN,
-        audit_log_fn=audit_log,
-        cleanup_scan_runtime_fn=_cleanup_classic_scan_runtime,
-    )
-
-
-async def scan_reader_task(user_id: str):
-    await _classic_scan_reader_task_impl(user_id, _classic_scan_runtime_deps())
-
-
-async def start_next_phase(user_id: str, scan_info: dict):
-    await _classic_start_next_phase_impl(user_id, scan_info, _classic_scan_runtime_deps())
 
 
 def _scan_stop_metric_inc(kind: str) -> None:
@@ -2138,6 +2052,21 @@ async def verify_audit_chain(current_user: JWTPayload = Depends(require_permissi
 # ============================================================================
 # HEALTH & STATUS
 # ============================================================================
+
+
+@app.get("/status/runtime")
+async def get_runtime_status(current_user: JWTPayload = Depends(get_current_user)):
+    """Get canonical runtime metadata."""
+    return {
+        "version": "3.1.0",
+        "environment": ENVIRONMENT,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "worker_id": WORKER_ID,
+        "features": {
+            "unified": True,
+            "legacy_compat": False,
+        }
+    }
 
 
 @app.get("/health")
