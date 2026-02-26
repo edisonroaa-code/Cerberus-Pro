@@ -37,3 +37,17 @@ backend/**/__pycache__/
 
 # Nested local clone
 sqlmap-master/
+
+# Databases
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Temporary utility and test scripts
+patch_*.py
+test_output.txt
+test_results.log
+*.tmp
+*.temp
