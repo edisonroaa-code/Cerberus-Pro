@@ -1,4 +1,4 @@
-from core.coverage_contract_v1 import (
+from backend.core.coverage_contract_v1 import (
     ConclusiveBlockerV1,
     CoverageSummaryV1,
     adapt_legacy_blockers,

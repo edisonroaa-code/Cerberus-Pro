@@ -5,7 +5,7 @@ Refleja: worker activo, cola viva, jobs running/queued, self-heal.
 
 from typing import Dict, Any
 from datetime import datetime, timezone
-from core.scheduler_enhanced import get_scheduler
+from backend.core.scheduler_enhanced import get_scheduler
 import logging
 
 logger = logging.getLogger(__name__)

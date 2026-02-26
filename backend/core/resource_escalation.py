@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Dict, List, Optional, Set, Any
 from pydantic import BaseModel, Field
-from core.coverage_ledger import (
+from backend.core.coverage_ledger import (
     CoverageLedger,
     ConclusiveBlocker,
     PhaseCompletionRecord,

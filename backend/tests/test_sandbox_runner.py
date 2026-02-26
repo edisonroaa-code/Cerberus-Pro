@@ -5,7 +5,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
-from core.sandbox_runner import SandboxConfig, SandboxMode, SandboxRunner
+from backend.core.sandbox_runner import SandboxConfig, SandboxMode, SandboxRunner
 
 
 @pytest.mark.asyncio

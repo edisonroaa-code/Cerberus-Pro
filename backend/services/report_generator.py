@@ -5,9 +5,9 @@ Nunca "safe" si es inconcluso.
 """
 
 from typing import Dict, Any, List
-from core.verdict_contract import VerdictDictum, VerdictStatus
-from core.coverage_ledger import CoverageLedger, ConclusiveBlocker
-from core.verdict_engine import VerdictEngine
+from backend.core.verdict_contract import VerdictDictum, VerdictStatus
+from backend.core.coverage_ledger import CoverageLedger, ConclusiveBlocker
+from backend.core.verdict_engine import VerdictEngine
 import json
 import logging
 import os

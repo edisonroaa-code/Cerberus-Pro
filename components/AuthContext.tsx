@@ -58,7 +58,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const backendReady = await checkBackendReady({ apiBaseUrl: API_BASE_URL });
       if (!backendReady) {
-        setAuthState({ isAuthenticated: false, user: null, accessToken: null });
+        console.warn('Backend not ready during session check. Skipping session validation.');
         return;
       }
       const response = await fetchWithTimeout(`${API_BASE_URL}/auth/me`, {
@@ -74,8 +74,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated: true,
         user: userData,
       }));
-    } catch {
-      setAuthState({ isAuthenticated: false, user: null, accessToken: null });
+    } catch (err) {
+      console.warn('Network error during session check. Skipping session validation.', err);
     } finally {
       setLoading(false);
     }
@@ -103,8 +103,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }));
         await checkSession();
         return tokens.access_token;
-      } catch {
-        setAuthState({ isAuthenticated: false, user: null, accessToken: null });
+      } catch (err) {
+        console.warn('Network error during token refresh. Keeping current state.', err);
         return null;
       } finally {
         refreshPromiseRef.current = null;
@@ -300,38 +300,50 @@ export const LoginPage: React.FC = () => {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Username</label>
+            <label htmlFor="login-username" className="block text-sm font-medium text-gray-300 mb-2">Username</label>
             <input
+              id="login-username"
+              name="username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500"
+              className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
               placeholder="Enter username"
+              autoComplete="username"
+              aria-label="Username or Email"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Password</label>
+            <label htmlFor="login-password" className="block text-sm font-medium text-gray-300 mb-2">Password</label>
             <input
+              id="login-password"
+              name="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500"
+              className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
               placeholder="Enter password"
+              autoComplete="current-password"
+              aria-label="Password"
               required
             />
           </div>
 
           {needsMFA && (
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">MFA Code</label>
+              <label htmlFor="login-mfa" className="block text-sm font-medium text-gray-300 mb-2">MFA Code</label>
               <input
+                id="login-mfa"
+                name="mfaCode"
                 type="text"
                 value={mfaCode}
                 onChange={(e) => setMfaCode(e.target.value)}
-                className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500"
+                className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                 placeholder="6-digit code"
+                autoComplete="one-time-code"
+                aria-label="Multifactor Authentication Code"
                 maxLength={6}
               />
             </div>

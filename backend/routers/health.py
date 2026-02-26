@@ -7,8 +7,8 @@ POST /health/self-heal - Ejecutar auto-reparación
 """
 
 from fastapi import APIRouter, HTTPException
-from core.health import get_health_status
-from core.verdict_engine import VerdictEngine
+from backend.core.health import get_health_status
+from backend.core.verdict_engine import VerdictEngine
 from typing import Dict, Any
 import logging
 

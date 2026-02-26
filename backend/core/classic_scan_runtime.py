@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List
 
-from core.coverage_contract_v1 import (
+from backend.core.coverage_contract_v1 import (
     COVERAGE_SCHEMA_VERSION_V1,
     CoveragePhaseRecordV1,
     CoverageResponseV1,

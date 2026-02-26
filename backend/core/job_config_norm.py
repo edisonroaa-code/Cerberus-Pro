@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from core.scan_utils import _ensure_unified_cfg_aliases, _read_unified_runtime_cfg
+from backend.core.scan_utils import _ensure_unified_cfg_aliases, _read_unified_runtime_cfg
 
 
 def normalize_classic_to_unified_cfg(cfg: Dict[str, Any]) -> dict:

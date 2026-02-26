@@ -7,7 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
-from core.job_persistence_runtime import (
+from backend.core.job_persistence_runtime import (
     JobPersistenceRuntimeDeps,
     create_job as _create_job_impl,
     fallback_coverage_response_from_job as _fallback_coverage_response_from_job_impl,

@@ -1,7 +1,7 @@
 from fastapi import Depends, HTTPException, status
 
 from auth_security import JWTManager, JWTPayload
-from core.security import OAuth2PasswordBearerWithCookie
+from backend.core.security import OAuth2PasswordBearerWithCookie
 
 
 oauth2_cookie_scheme = OAuth2PasswordBearerWithCookie(token_url="/auth/login", auto_error=False)

@@ -7,7 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
-from core.coverage_contract_v1 import (
+from backend.core.coverage_contract_v1 import (
     COVERAGE_SCHEMA_VERSION_V1,
     CoverageResponseV1,
     CoverageSummaryV1,

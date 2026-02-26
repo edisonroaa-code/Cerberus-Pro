@@ -161,7 +161,7 @@ async def get_exfil_data(session_id: str, type: str = "dns", current_user: User 
 @router.post("/payloads/generate")
 async def generate_payload_endpoint(config: Dict, current_user: User = Depends(get_current_user)):
     """Generate obfuscated payload"""
-    from payload_generation.payload_generator import PayloadGenerator
+    from payloads.payload_generator import PayloadGenerator
     generator = PayloadGenerator()
     try:
         result = generator.generate_payload(config.get("type", ""), config.get("details", {}))

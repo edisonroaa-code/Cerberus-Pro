@@ -10,9 +10,9 @@ GET /verdict/{scan_id}/report/coverage - Solo cobertura
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
-from core.verdict_contract import VerdictDictum, VerdictStatus
-from core.coverage_ledger import CoverageLedger
-from core.verdict_engine import VerdictEngine
+from backend.core.verdict_contract import VerdictDictum, VerdictStatus
+from backend.core.coverage_ledger import CoverageLedger
+from backend.core.verdict_engine import VerdictEngine
 from services.report_generator import ReportGenerator
 import logging
 

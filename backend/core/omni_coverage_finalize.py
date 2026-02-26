@@ -8,7 +8,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Sequence, Set
 
-from core.coverage_contract_v1 import (
+from backend.core.coverage_contract_v1 import (
     COVERAGE_SCHEMA_VERSION_V1,
     CoverageResponseV1,
     CoverageSummaryV1,
@@ -16,14 +16,14 @@ from core.coverage_contract_v1 import (
     adapt_legacy_blockers,
     issue_verdict_v1,
 )
-from core.coverage_ledger import (
+from backend.core.coverage_ledger import (
     ConclusiveBlocker,
     CoverageStatus,
     EngineCoverageRecord,
     VectorCoverageRecord,
 )
-from core.coverage_mapper import _to_phase_records_v1, _to_vector_records_v1
-from core.omni_scan_runtime import omni_reason_human
+from backend.core.coverage_mapper import _to_phase_records_v1, _to_vector_records_v1
+from backend.core.omni_scan_runtime import omni_reason_human
 
 
 async def finalize_omni_coverage(

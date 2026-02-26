@@ -348,24 +348,24 @@ const AttackMap: React.FC<AttackMapProps> = ({ agentConnected, events, targetUrl
           </div>
         ))}
       </div>
-      
+
       {/* Node Detail Popup */}
       {selectedNode && (
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-cyber-950/95 border border-emerald-500 rounded p-4 w-64 shadow-2xl backdrop-blur-md z-10 animate-in fade-in zoom-in duration-200">
-              <div className="flex justify-between items-center mb-2 border-b border-cyber-800 pb-2">
-                  <h3 className="font-bold text-emerald-400">{selectedNode.id}</h3>
-                  <button onClick={() => setSelectedNode(null)} className="text-gray-400 hover:text-white"><X size={16}/></button>
-              </div>
-              <div className="space-y-2 text-xs font-mono">
-                  <div className="flex justify-between"><span className="text-gray-500">Tipo:</span> <span className="text-white">{selectedNode.type}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Estado:</span> <span className="text-white">{selectedNode.status}</span></div>
-                  <div className="mt-2 pt-2 border-t border-cyber-800 space-y-1">
-                      {selectedNode.details.map((detail, idx) => (
-                          <div key={idx} className="text-cyan-600">{detail}</div>
-                      ))}
-                  </div>
-              </div>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-cyber-950/95 border border-emerald-500 rounded p-4 w-64 shadow-2xl backdrop-blur-md z-10 animate-in fade-in zoom-in duration-200">
+          <div className="flex justify-between items-center mb-2 border-b border-cyber-800 pb-2">
+            <h3 className="font-bold text-emerald-400">{selectedNode.id}</h3>
+            <button onClick={() => setSelectedNode(null)} className="text-gray-400 hover:text-white" aria-label="Cerrar detalles del nodo"><X size={16} /></button>
           </div>
+          <div className="space-y-2 text-xs font-mono">
+            <div className="flex justify-between"><span className="text-gray-500">Tipo:</span> <span className="text-white">{selectedNode.type}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Estado:</span> <span className="text-white">{selectedNode.status}</span></div>
+            <div className="mt-2 pt-2 border-t border-cyber-800 space-y-1">
+              {selectedNode.details.map((detail, idx) => (
+                <div key={idx} className="text-cyan-600">{detail}</div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

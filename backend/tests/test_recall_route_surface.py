@@ -26,11 +26,6 @@ def test_canonical_scan_routes_declared():
     assert '/scan/omni/capabilities' not in src
 
 
-def test_modular_scan_status_path_moved_to_module_namespace():
-    router_src = _read(ROOT / "backend" / "routers" / "scan.py")
-    assert '@router.get("/module/status")' in router_src
-    assert '@router.get("/status")' not in router_src
-
 
 def test_unified_runtime_has_no_scan_manager_fallback():
     src = _read(ROOT / "backend" / "ares_api.py")

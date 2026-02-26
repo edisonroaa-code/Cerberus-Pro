@@ -685,10 +685,23 @@ def audit_action(action: str, resource_type: str):
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, user: JWTPayload, **kwargs):
-            # Log audit
-            # TODO: Implement audit logging
-            result = await func(*args, user=user, **kwargs)
-            return result
+            try:
+                result = await func(*args, user=user, **kwargs)
+                try:
+                    from backend.ares_api import audit_log
+                    await audit_log(user_id=user.sub, action=action, resource_type=resource_type, status="success")
+                except Exception as e:
+                    import logging
+                    logging.error(f"Audit log failed for {action}: {e}")
+                return result
+            except Exception as outer_e:
+                try:
+                    from backend.ares_api import audit_log
+                    await audit_log(user_id=user.sub, action=action, resource_type=resource_type, status="failure", error_message=str(outer_e))
+                except Exception as e:
+                    import logging
+                    logging.error(f"Audit log failed for failed {action}: {e}")
+                raise
         return wrapper
     return decorator
 

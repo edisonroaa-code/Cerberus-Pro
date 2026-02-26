@@ -1,3 +1,6 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* Intentionally minimal.
    Exists to satisfy index.html stylesheet reference during Vite build. */
-

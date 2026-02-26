@@ -1,8 +1,8 @@
 import pytest
 
-from core.chain_orchestrator import ChainOrchestrator
-from core.coverage_ledger import CoverageLedger
-from core.resource_escalation import ResourceEscalationEngine
+from backend.core.chain_orchestrator import ChainOrchestrator
+from backend.core.coverage_ledger import CoverageLedger
+from backend.core.resource_escalation import ResourceEscalationEngine
 
 
 def _ledger() -> CoverageLedger:

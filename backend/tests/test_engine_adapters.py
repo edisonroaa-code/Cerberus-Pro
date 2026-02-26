@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
-from core.engine_adapters import SqlmapAdapter, get_engine_adapter_registry
+from backend.core.engine_adapters import SqlmapAdapter, get_engine_adapter_registry
 
 
 from unittest.mock import patch

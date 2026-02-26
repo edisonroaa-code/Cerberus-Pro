@@ -90,25 +90,25 @@ from v4_omni_surface import (
     DifferentialResponseValidator,
     TLSFingerprintManager,
 )
-from core.coverage_ledger import (
+from backend.core.coverage_ledger import (
     CoverageLedger,
     ConclusiveBlocker,
     PhaseCompletionRecord,
 )
-from core.coverage_contract_v1 import (
+from backend.core.coverage_contract_v1 import (
     ConclusiveBlockerV1,
     CoverageResponseV1,
 )
-from core.coverage_mapper import (
+from backend.core.coverage_mapper import (
     _build_default_vector_page as _coverage_mapper_build_default_vector_page,
     _coverage_public_payload as _coverage_mapper_public_payload,
 )
-from core.audit_chain_store import (
+from backend.core.audit_chain_store import (
     append_audit_chain as _audit_store_append_audit_chain,
     init_audit_db as _audit_store_init_audit_db,
     verify_audit_chain as _audit_store_verify_audit_chain,
 )
-from core.job_runtime import (
+from backend.core.job_runtime import (
     ensure_job_background_tasks as _job_runtime_ensure_job_background_tasks,
     enqueue_job_memory as _job_runtime_enqueue_job_memory,
     init_job_queue_backend as _job_runtime_init_job_queue_backend,
@@ -118,35 +118,35 @@ from core.job_runtime import (
     refresh_queue_backlog_metric as _job_runtime_refresh_queue_backlog_metric,
     task_runtime_state as _job_runtime_task_runtime_state,
 )
-from core.job_worker import (
+from backend.core.job_worker import (
     job_heartbeat_loop as _job_worker_heartbeat_loop,
     job_worker_loop as _job_worker_worker_loop,
 )
-from core.job_kind import (
+from backend.core.job_kind import (
     job_kind_candidates as _job_kind_candidates_impl,
     normalize_job_kind as _normalize_job_kind_impl,
 )
-from core.job_config_norm import (
+from backend.core.job_config_norm import (
     normalize_unified_job_cfg as _job_cfg_normalize_unified_job_cfg,
 )
-from core.process_guard import (
+from backend.core.process_guard import (
     host_allowed as _process_guard_host_allowed,
     start_sqlmap_process as _process_guard_start_sqlmap_process,
     terminate_process_tree as _process_guard_terminate_process_tree,
 )
-from core.worker_identity import build_worker_payload as _worker_identity_build_worker_payload
-from core.unified_target_policy import (
+from backend.core.worker_identity import build_worker_payload as _worker_identity_build_worker_payload
+from backend.core.unified_target_policy import (
     validate_unified_target_policy as _target_policy_validate_unified_target_policy,
 )
-from core.target_validation import (
+from backend.core.target_validation import (
     validate_network_host as _target_validation_validate_network_host,
     validate_target as _target_validation_validate_target,
 )
-from core.log_output import (
+from backend.core.log_output import (
     sanitize_line as _log_output_sanitize_line,
     translate_log as _log_output_translate_log,
 )
-from core.omni_scan_runtime import (
+from backend.core.omni_scan_runtime import (
     analyze_omni_results_for_verdict as _omni_runtime_analyze_results_for_verdict,
     build_engine_vectors_for_target as _omni_runtime_build_engine_vectors_for_target,
     build_requested_engines as _omni_runtime_build_requested_engines,
@@ -155,53 +155,53 @@ from core.omni_scan_runtime import (
     omni_reason_human as _omni_runtime_reason_human,
     prepare_omni_scan_context as _omni_runtime_prepare_scan_context,
 )
-from core.omni_history import (
+from backend.core.omni_history import (
     build_history_data as _omni_history_build_history_data,
     make_history_paths as _omni_history_make_history_paths,
     persist_encrypted_artifact as _omni_history_persist_encrypted_artifact,
     persist_history_json as _omni_history_persist_history_json,
     set_evidence_count as _omni_history_set_evidence_count,
 )
-from core.omni_web_execution import (
+from backend.core.omni_web_execution import (
     execute_web_mode_phases as _omni_web_execute_mode_phases,
 )
-from core.omni_engine_scan import (
+from backend.core.omni_engine_scan import (
     run_registered_engines_unified as _omni_engine_run_registered_engines_unified,
 )
-from core.omni_nonweb_execution import (
+from backend.core.omni_nonweb_execution import (
     execute_nonweb_mode as _omni_nonweb_execute_mode,
 )
-from core.omni_coverage_finalize import (
+from backend.core.omni_coverage_finalize import (
     finalize_omni_coverage as _omni_finalize_coverage,
 )
-from core.classic_scan_runtime import (
+from backend.core.classic_scan_runtime import (
     ClassicScanRuntimeDeps,
     scan_reader_task as _classic_scan_reader_task_impl,
     start_next_phase as _classic_start_next_phase_impl,
 )
-from core.unified_multilevel_job import (
+from backend.core.unified_multilevel_job import (
     UnifiedMultilevelJobDeps,
     run_unified_multilevel_job as _run_unified_multilevel_job_impl,
 )
-from core.websocket_runtime import (
+from backend.core.websocket_runtime import (
     WebsocketRuntimeDeps,
     broadcast as _ws_broadcast_impl,
     websocket_agent_endpoint as _ws_agent_endpoint_impl,
     websocket_endpoint as _ws_endpoint_impl,
 )
-from core.audit_runtime import (
+from backend.core.audit_runtime import (
     AuditRuntimeDeps,
     audit_log as _audit_runtime_log_impl,
     list_audit_logs as _audit_runtime_list_logs_impl,
     verify_audit_chain as _audit_runtime_verify_chain_impl,
 )
-from core.system_ops_runtime import (
+from backend.core.system_ops_runtime import (
     SystemOpsRuntimeDeps,
     admin_kick_jobs_payload as _system_ops_admin_kick_jobs_payload_impl,
     health_payload as _system_ops_health_payload_impl,
     status_payload as _system_ops_status_payload_impl,
 )
-from core.job_control_runtime import (
+from backend.core.job_control_runtime import (
     JobControlRuntimeDeps,
     get_job_coverage_payload as _job_control_get_job_coverage_payload_impl,
     get_job_payload as _job_control_get_job_payload_impl,
@@ -211,21 +211,21 @@ from core.job_control_runtime import (
     stop_job_payload as _job_control_stop_job_payload_impl,
     stop_scan_payload as _job_control_stop_scan_payload_impl,
 )
-from core.job_execution_runtime import (
+from backend.core.job_execution_runtime import (
     JobExecutionRuntimeDeps,
     run_classic_job as _job_exec_run_classic_job_impl,
     run_omni_job as _job_exec_run_omni_job_impl,
     scan_timeout_watchdog as _job_exec_scan_timeout_watchdog_impl,
 )
-from core.job_persistence_runtime import (
+from backend.core.job_persistence_runtime import (
     JobPersistenceRuntimeDeps,
 )
-from core.job_persistence_facade import JobPersistenceFacade
-from core.unified_queue_runtime import (
+from backend.core.job_persistence_facade import JobPersistenceFacade
+from backend.core.unified_queue_runtime import (
     UnifiedQueueRuntimeDeps,
     queue_unified_scan as _queue_unified_scan_impl,
 )
-from core.postgres_persistence_runtime import (
+from backend.core.postgres_persistence_runtime import (
     PostgresPersistenceRuntimeDeps,
     init_jobs_db as _pg_init_jobs_db_impl,
     job_count_db as _pg_job_count_db_impl,
@@ -235,7 +235,7 @@ from core.postgres_persistence_runtime import (
     persist_scan_artifacts_db as _pg_persist_scan_artifacts_db_impl,
     pg_enabled as _pg_enabled_impl,
 )
-from core.job_queue_bridge_runtime import (
+from backend.core.job_queue_bridge_runtime import (
     JobQueueBridgeDeps,
     enqueue_queued_jobs as _jq_enqueue_queued_jobs_impl,
     ensure_job_background_tasks as _jq_ensure_job_background_tasks_impl,
@@ -248,19 +248,19 @@ from core.job_queue_bridge_runtime import (
     run_standalone_job_worker as _jq_run_standalone_job_worker_impl,
     task_runtime_state as _jq_task_runtime_state_impl,
 )
-from core.omni_surface_runtime import (
+from backend.core.omni_surface_runtime import (
     OmniSurfaceRuntimeDeps,
     run_omni_surface_scan as _omni_surface_scan_impl,
 )
-from core.api_surface_ops_runtime import (
+from backend.core.api_surface_ops_runtime import (
     ApiSurfaceOpsDeps,
     http_exception_payload as _api_surface_http_exception_payload_impl,
     metrics_payload as _api_surface_metrics_payload_impl,
     scan_capabilities_payload as _api_surface_scan_capabilities_payload_impl,
     setup_playwright_payload as _api_surface_setup_playwright_payload_impl,
 )
-from core.orchestrator_fsm import Orchestrator, OrchestratorPhase
-from core.jobs_sqlite import (
+from backend.core.orchestrator_fsm import Orchestrator, OrchestratorPhase
+from backend.core.jobs_sqlite import (
     count_jobs as _jobs_sqlite_count_jobs,
     create_job as _jobs_sqlite_create_job,
     get_job as _jobs_sqlite_get_job,
@@ -271,8 +271,8 @@ from core.jobs_sqlite import (
     recover_running_jobs_on_startup as _jobs_sqlite_recover_running_jobs_on_startup,
     update_job as _jobs_sqlite_update_job,
 )
-from core.runtime_state import CerberusState
-from core.scan_utils import (
+from backend.core.runtime_state import CerberusState
+from backend.core.scan_utils import (
     AUTOPILOT_MAX_PHASE,
     OMNI_ALLOWED_MODES,
     OMNI_ALLOWED_VECTORS,
@@ -285,15 +285,15 @@ from core.scan_utils import (
     _target_slug as _scan_utils_target_slug,
     validate_omni_config as _scan_utils_validate_omni_config,
 )
-from core.worker_runner import run_standalone_worker as _worker_runner_run_standalone_worker
-from db.postgres_store import PostgresStore
-from routers.verdicts import router as verdicts_router
-from routers.engines import router as engines_router
+from backend.core.worker_runner import run_standalone_worker as _worker_runner_run_standalone_worker
+from backend.db.postgres_store import PostgresStore
+from backend.routers.verdicts import router as verdicts_router
+from backend.routers.engines import router as engines_router
 from exploits.metasploit_bridge import MetasploitBridge
-from c2.c2_server import C2Server
+from backend.c2.c2_server import C2Server
 from exfiltration.dns_tunnel import DNSTunnelListener
 from exfiltration.icmp_exfil import ICMPListener
-from payloads.payload_generator import PayloadGenerator
+from backend.payloads.payload_generator import PayloadGenerator
 from privesc.privesc_engine import PrivEscEngine
 from governance.policy_engine import get_policy_engine, ActionType
 
@@ -308,6 +308,11 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+APP_LOG_LEVEL = os.environ.get("APP_LOG_LEVEL", "INFO").strip().upper()
+APP_LOG_LEVEL_VALUE = getattr(logging, APP_LOG_LEVEL, logging.INFO)
+logger.setLevel(APP_LOG_LEVEL_VALUE)
+logging.getLogger("backend").setLevel(APP_LOG_LEVEL_VALUE)
+logging.getLogger("cerberus").setLevel(APP_LOG_LEVEL_VALUE)
 
 # Load environment variables from project root .env (if present)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -561,6 +566,18 @@ async def lifespan(app: FastAPI):
     # Create default admin user
     if not state.users:
         admin_id = "u_admin_001"
+        import secrets
+        import os
+        admin_pass = os.environ.get("CERBERUS_ADMIN_PASSWORD")
+        env_mode = os.environ.get("ENVIRONMENT", "production").lower()
+        if not admin_pass:
+            if env_mode == "production":
+                logger.error("❌ CRITICAL: CERBERUS_ADMIN_PASSWORD must be set in production environment!")
+                raise RuntimeError("CERBERUS_ADMIN_PASSWORD missing in production")
+            else:
+                admin_pass = "admin"
+                logger.warning("⚠️  Running in DEV mode. Using default admin password. DO NOT USE IN PRODUCTION.")
+
         admin_user = User(
             id=admin_id,
             username="admin",
@@ -569,7 +586,7 @@ async def lifespan(app: FastAPI):
             role=Role.SUPER_ADMIN,
             created_at=datetime.now(timezone.utc),
             last_login=None,
-            password_hash=PasswordManager.hash_password("CerberusPro2024!"),
+            password_hash=PasswordManager.hash_password(admin_pass),
             mfa_enabled=False
         )
         state.users[admin_id] = admin_user
@@ -1052,12 +1069,16 @@ app.add_middleware(
 app.include_router(verdicts_router, prefix="/verdict", tags=["verdict"])
 app.include_router(engines_router, prefix="/engines", tags=["engines"])
 
+# Health router
+from backend.routers.health import router as health_router
+app.include_router(health_router, prefix="/health", tags=["health"])
+
 # Auth router (extracted from monolith)
-from routers.auth import router as auth_router
+from backend.routers.auth import router as auth_router
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 
 # Admin router (extracted from monolith)
-from routers.admin import router as admin_router
+from backend.routers.admin import router as admin_router
 app.include_router(admin_router, prefix="/admin", tags=["admin"])
 # API Keys share /auth prefix
 app.include_router(admin_router, prefix="/auth", tags=["api-keys"], include_in_schema=False)
@@ -1371,7 +1392,7 @@ async def stop_scan(
 
 
 # History router (extracted from monolith)
-from routers.history import router as history_router
+from backend.routers.history import router as history_router
 app.include_router(history_router, prefix="/history", tags=["history"])
 # [HISTORY ENDPOINTS EXTRACTED TO routers/history.py]
 
@@ -1436,7 +1457,7 @@ async def retry_job(scan_id: str, current_user: JWTPayload = Depends(require_per
     )
 
 # C2/Agent router (extracted from monolith)
-from routers.c2 import router as c2_router
+from backend.routers.c2 import router as c2_router
 app.include_router(c2_router, prefix="/c2", tags=["c2"])
 # Agent management also accessible via /auth and /admin prefixes
 app.include_router(c2_router, prefix="/auth/agent", tags=["agents"], include_in_schema=False)
@@ -1444,7 +1465,7 @@ app.include_router(c2_router, prefix="/admin/agents", tags=["agents"], include_i
 # [AGENT + C2 ENDPOINTS EXTRACTED TO routers/c2.py]
 
 # Offensive router (extracted from monolith)
-from routers.offensive import router as offensive_router
+from backend.routers.offensive import router as offensive_router
 app.include_router(offensive_router, tags=["offensive"])
 # [METASPLOIT + EXFIL + PAYLOAD + PRIVESC ENDPOINTS EXTRACTED TO routers/offensive.py]
 
@@ -1544,12 +1565,6 @@ async def verify_audit_chain(current_user: JWTPayload = Depends(require_permissi
 # ============================================================================
 # HEALTH & STATUS
 # ============================================================================
-
-
-@app.get("/health")
-async def health_check():
-    return await _system_ops_health_payload_impl(deps=_system_ops_runtime_deps())
-
 
 @app.post("/admin/jobs/kick")
 async def admin_kick_jobs(

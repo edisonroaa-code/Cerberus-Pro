@@ -6,8 +6,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
-from core.chain_orchestrator import ChainLink, ChainOrchestrator, VulnerabilityFinding, VulnerabilityType
-from core.sandbox_runner import SandboxConfig, SandboxMode, SandboxRunner
+from backend.core.chain_orchestrator import ChainLink, ChainOrchestrator, VulnerabilityFinding, VulnerabilityType
+from backend.core.sandbox_runner import SandboxConfig, SandboxMode, SandboxRunner
 
 
 class _FakeAdapter:

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from core.coverage_contract_v1 import (
+from backend.core.coverage_contract_v1 import (
     CoveragePhaseRecordV1,
     CoverageResponseV1,
     CoverageVectorRecordV1,

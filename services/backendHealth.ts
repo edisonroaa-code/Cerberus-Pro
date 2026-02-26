@@ -1,9 +1,12 @@
 type BackendHealthOptions = {
   apiBaseUrl: string;
   timeoutMs?: number;
+  cacheTtlMs?: number;
 };
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
+const backendReadyCache = new Map<string, { value: boolean; ts: number }>();
+const backendReadyInflight = new Map<string, Promise<boolean>>();
 
 const fetchWithTimeout = async (url: string, timeoutMs: number) => {
   const controller = new AbortController();
@@ -29,10 +32,32 @@ const isReachable = async (url: string, timeoutMs: number) => {
 export const checkBackendReady = async ({
   apiBaseUrl,
   timeoutMs = 1500,
+  cacheTtlMs = 5000,
 }: BackendHealthOptions): Promise<boolean> => {
   const base = trimTrailingSlash(apiBaseUrl);
+  const now = Date.now();
+  const cached = backendReadyCache.get(base);
+  if (cached && now - cached.ts < Math.max(0, cacheTtlMs)) {
+    return cached.value;
+  }
+  const inflight = backendReadyInflight.get(base);
+  if (inflight) return inflight;
 
-  if (await isReachable(`${base}/health`, timeoutMs)) return true;
-  if (await isReachable(`${base}/status`, timeoutMs)) return true;
-  return false;
+  const probe = (async () => {
+    let ok = false;
+    if (await isReachable(`${base}/health`, timeoutMs)) {
+      ok = true;
+    } else if (await isReachable(`${base}/status`, timeoutMs)) {
+      ok = true;
+    }
+    backendReadyCache.set(base, { value: ok, ts: Date.now() });
+    return ok;
+  })();
+
+  backendReadyInflight.set(base, probe);
+  try {
+    return await probe;
+  } finally {
+    backendReadyInflight.delete(base);
+  }
 };

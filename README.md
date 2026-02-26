@@ -15,7 +15,7 @@ Orquestador local de scans **autorizados** basado en FastAPI + React, con **moto
 
 ## Inicio rapido (DEV)
 ```bash
-pip install -r backend/requirements_secure.txt
+pip install -r backend/requirements.txt
 npm install
 cp .env.example .env
 

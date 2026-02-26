@@ -64,6 +64,11 @@ function spawnTask(name, command, args, extraEnv = {}) {
   return child;
 }
 
+function shouldIgnoreExit(taskName, code) {
+  if (taskName !== 'BACKEND') return false;
+  return code === -1 || code === 4294967295;
+}
+
 async function main() {
   loadEnvFile('.env');
 
@@ -102,6 +107,9 @@ async function main() {
           '--reload',
           '--reload-exclude',
           'backend/history',
+          '--no-access-log',
+          '--log-level',
+          'warning',
         ],
         { ENVIRONMENT: process.env.ENVIRONMENT || 'development' }
       )
@@ -151,6 +159,10 @@ async function main() {
   // If any spawned task exits, stop the rest (fail-fast is still desirable during dev).
   for (const t of tasks) {
     t.on('exit', (code) => {
+      if (shouldIgnoreExit(t.__taskName || 'task', code)) {
+        console.warn(`[dev-all] ${t.__taskName || 'task'} exited with code=${code} (ignored on Windows reload).`);
+        return;
+      }
       if (code && code !== 0) {
         console.error(`[dev-all] ${t.__taskName || 'task'} exited with code=${code}. Shutting down others.`);
         shutdown();

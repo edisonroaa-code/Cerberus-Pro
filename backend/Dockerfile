@@ -11,9 +11,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements_secure.txt backend/requirements_secure.txt
-RUN pip install --upgrade pip \
-    && pip install -r backend/requirements_secure.txt
+COPY backend/requirements.txt backend/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install -r backend/requirements.txt
 
 COPY . .
 
