@@ -89,3 +89,14 @@ export interface ScanHistoryItem {
   mode?: string;
   kind?: string;
 }
+
+export interface CerberusJob {
+  scan_id: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted';
+  kind: string;
+  target?: string;
+  result_filename?: string;
+  created_at?: string;
+  error_message?: string;
+  [key: string]: unknown; // For raw JSON viewing
+}

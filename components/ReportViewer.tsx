@@ -2,6 +2,7 @@ import React, { Suspense } from 'react';
 import TerminalView from './Terminal';
 import { VerticalSplitLayout } from './ui/VerticalSplitLayout';
 import { TabbedView } from './ui/TabbedView';
+import { LogEntry, SystemMetrics, FingerprintData } from '../types';
 
 const AttackMap = React.lazy(() => import('./AttackMap'));
 const StatsPanel = React.lazy(() => import('./StatsPanel'));
@@ -9,14 +10,14 @@ const FingerprintView = React.lazy(() => import('./FingerprintView'));
 
 interface ReportViewerProps {
     mode: 'dashboard' | 'campaign';
-    logs: any[];
-    metrics: any[];
+    logs: LogEntry[];
+    metrics: SystemMetrics[];
     agentConnected: boolean;
     targetUrl: string;
     handleTerminalCommand: (cmd: string) => void;
-    setLogs: (logs: any[]) => void;
+    setLogs: (logs: LogEntry[]) => void;
     activeFingerprint: string | null;
-    mockFingerprints: any[];
+    mockFingerprints: FingerprintData[];
     profileRules: any;
     targetProfile: string;
 }

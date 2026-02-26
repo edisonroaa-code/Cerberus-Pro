@@ -549,7 +549,9 @@ const App: React.FC = () => {
 
     const loadHistoryItem = async (filename: string) => {
         try {
-            const response = await apiFetch(`${API_BASE_URL}/history/${filename}`);
+            const encodedFilename = encodeURIComponent(filename);
+            const response = await apiFetch(`${API_BASE_URL}/history/${encodedFilename}`);
+
             if (response.ok) {
                 const data = await response.json();
 
@@ -569,10 +571,17 @@ const App: React.FC = () => {
                 setShowReport(true);
                 addLog('SISTEMA', 'SUCCESS', `Cargado reporte histórico: ${data.target}`);
             } else {
-                addLog('SISTEMA', 'ERROR', `Error HTTP devuelto por servidor: ${response.status}`);
+                let errMsg = `Error HTTP ${response.status} - ${response.statusText}`;
+                try {
+                    const errData = await response.json();
+                    if (errData.detail) errMsg = errData.detail;
+                } catch (e) {
+                    // Ignore JSON parsing errors for error responses
+                }
+                addLog('SISTEMA', 'ERROR', `Error al cargar historial: ${errMsg}`);
             }
         } catch (e: any) {
-            addLog('SISTEMA', 'ERROR', `Error al cargar detalle del historial: ${e.message || String(e)}`);
+            addLog('SISTEMA', 'ERROR', `Excepción al cargar el reporte histórico: ${e.message || String(e)}`);
         }
     };
 

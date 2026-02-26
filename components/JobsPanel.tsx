@@ -2,13 +2,14 @@ import React, { useState, useMemo } from 'react';
 import { Server } from 'lucide-react';
 import clsx from 'clsx';
 import { SplitPanelLayout } from './ui/SplitPanelLayout';
+import { CerberusJob } from '../types';
 
 interface JobsPanelProps {
-    jobs: any[];
+    jobs: CerberusJob[];
     fetchJobs: () => void;
     stopJob: (scanId: string) => void;
     retryJob: (scanId: string) => void;
-    selectedJob: any | null;
+    selectedJob: CerberusJob | null;
     loadJobDetail: (scanId: string) => void;
 }
 
@@ -24,7 +25,7 @@ export const JobsPanel: React.FC<JobsPanelProps> = ({
     const [jobFilterKind, setJobFilterKind] = useState<string>('all');
 
     const filteredJobs = useMemo(() => {
-        return jobs.filter((j: any) => {
+        return jobs.filter((j: CerberusJob) => {
             const status = String(j.status || '').toLowerCase();
             const kind = String(j.kind || '').toLowerCase();
             if (jobFilterStatus !== 'all' && status !== jobFilterStatus.toLowerCase()) return false;
@@ -105,7 +106,7 @@ export const JobsPanel: React.FC<JobsPanelProps> = ({
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-cyber-800/50">
-                                        {filteredJobs.length > 0 ? filteredJobs.map((j: any) => {
+                                        {filteredJobs.length > 0 ? filteredJobs.map((j: CerberusJob) => {
                                             const scanId = String(j.scan_id || '');
                                             const status = String(j.status || '');
                                             const kind = String(j.kind || '');
