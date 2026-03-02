@@ -35,9 +35,6 @@ backend/**/__pycache__/
 # Local secrets
 .env
 
-# Nested local clone
-sqlmap-master/
-
 # Databases
 *.db
 *.db-shm

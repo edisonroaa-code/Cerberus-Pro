@@ -1,11 +1,8 @@
-"""
-Web-mode execution helpers for omni scans.
-"""
-
 from __future__ import annotations
 
 import asyncio
 from typing import Any, Dict, List, Optional
+from .cerberus_http_client import CerberusHTTPClient
 
 
 async def execute_web_mode_phases(
@@ -382,11 +379,22 @@ async def execute_web_mode_phases(
                 ]
             )
 
+        # ── Ghost Network Anonymization Layer ────────────────────────
+        anon_client = CerberusHTTPClient(
+            use_tor=bool(omni_cfg.get("tor", False)),
+            tor_port=int(omni_cfg.get("torPort", 9050)),
+            proxy=omni_cfg.get("proxy"),
+            timeout=int(phase_sql_config.get("timeout", 15)),
+            random_agent=bool(phase_sql_config.get("randomAgent", True))
+        )
+        # ─────────────────────────────────────────────────────────────
+
         if ("AIIE" in requested_sqlmap_vectors) or bool(omni_cfg.get("aiie")):
             aiie_engine = engine_registry.get_engine("aiie")
             if aiie_engine is not None:
                 try:
-                    aiie_res = await aiie_engine.run(target_url, cfg, broadcast_log_fn)
+                    # Pass the anonymized client to the engine
+                    aiie_res = await aiie_engine.run(target_url, cfg, broadcast_log_fn, client=anon_client)
                     results.append(
                         {
                             "vector": aiie_res.vector,
@@ -394,13 +402,14 @@ async def execute_web_mode_phases(
                             "evidence": list(aiie_res.evidence or []),
                             "exit_code": int(aiie_res.exit_code),
                             "command": list(aiie_res.command or []),
+                            "loot": getattr(aiie_res, "loot", {}),
                             "error": None,
                         }
                     )
                 except Exception as exc:
                     results.append(
                         {
-                            "vector": "AIIE_SQLI",
+                            "vector": "AIIE",
                             "vulnerable": False,
                             "evidence": [],
                             "exit_code": 1,
@@ -412,7 +421,7 @@ async def execute_web_mode_phases(
             nosql_engine = engine_registry.get_engine("nosql")
             if nosql_engine is not None:
                 try:
-                    nosql_res = await nosql_engine.run(target_url, cfg, broadcast_log_fn)
+                    nosql_res = await nosql_engine.run(target_url, cfg, broadcast_log_fn, client=anon_client)
                     results.append(
                         {
                             "vector": nosql_res.vector,
@@ -438,7 +447,7 @@ async def execute_web_mode_phases(
             ssti_engine = engine_registry.get_engine("ssti")
             if ssti_engine is not None:
                 try:
-                    ssti_res = await ssti_engine.run(target_url, cfg, broadcast_log_fn)
+                    ssti_res = await ssti_engine.run(target_url, cfg, broadcast_log_fn, client=anon_client)
                     results.append(
                         {
                             "vector": ssti_res.vector,
@@ -460,6 +469,9 @@ async def execute_web_mode_phases(
                             "error": type(exc).__name__,
                         }
                     )
+        
+        # Cleanup Ghost Network connection pool
+        await anon_client.close()
 
         final_vuln = final_vuln or any(bool(item.get("vulnerable")) for item in results)
         if final_vuln and (not is_deep):

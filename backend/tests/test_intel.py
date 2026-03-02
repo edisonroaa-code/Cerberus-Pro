@@ -3,6 +3,7 @@ import unittest
 import asyncio
 import os
 import shutil
+from unittest.mock import AsyncMock, patch
 from backend.intel.cve_ingester import CVEIngester, CVE
 
 class TestIntel(unittest.IsolatedAsyncioTestCase):
@@ -17,8 +18,26 @@ class TestIntel(unittest.IsolatedAsyncioTestCase):
             shutil.rmtree(self.test_cache)
 
     async def test_fetch_and_cache(self):
-        # This uses the mocked data in fetch_latest_cves
-        cves = await self.ingester.fetch_latest_cves(min_score=9.0)
+        sample_rows = [
+            {
+                "cve_id": "CVE-2026-0001",
+                "description": "Critical SQL Injection in GenericCMS v4.0 allows unauthenticated RCE.",
+                "cvss_score": 9.8,
+                "published_date": "2026-01-01T00:00:00+00:00",
+                "references": ["https://github.com/advisories/GHSA-1234"],
+                "affected_products": ["GenericCMS"],
+            },
+            {
+                "cve_id": "CVE-2026-0002",
+                "description": "Buffer Overflow in OldServer allows DoS.",
+                "cvss_score": 7.5,
+                "published_date": "2026-01-02T00:00:00+00:00",
+                "references": [],
+                "affected_products": ["OldServer"],
+            },
+        ]
+        with patch.object(self.ingester, "_fetch_nvd", new=AsyncMock(return_value=sample_rows)):
+            cves = await self.ingester.fetch_latest_cves(min_score=9.0)
         
         self.assertEqual(len(cves), 1)
         self.assertEqual(cves[0].cve_id, "CVE-2026-0001")
@@ -27,8 +46,26 @@ class TestIntel(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(os.path.exists(os.path.join(self.test_cache, "CVE-2026-0001.json")))
 
     async def test_tech_stack_match(self):
-        # Populate cache first
-        await self.ingester.fetch_latest_cves(min_score=5.0)
+        sample_rows = [
+            {
+                "cve_id": "CVE-2026-0001",
+                "description": "Critical SQL Injection in GenericCMS v4.0 allows unauthenticated RCE.",
+                "cvss_score": 9.8,
+                "published_date": "2026-01-01T00:00:00+00:00",
+                "references": ["https://github.com/advisories/GHSA-1234"],
+                "affected_products": ["GenericCMS"],
+            },
+            {
+                "cve_id": "CVE-2026-0002",
+                "description": "Buffer Overflow in OldServer allows DoS.",
+                "cvss_score": 7.5,
+                "published_date": "2026-01-02T00:00:00+00:00",
+                "references": [],
+                "affected_products": ["OldServer"],
+            },
+        ]
+        with patch.object(self.ingester, "_fetch_nvd", new=AsyncMock(return_value=sample_rows)):
+            await self.ingester.fetch_latest_cves(min_score=5.0)
         
         # Test match
         matches = await self.ingester.check_cve_match(["GenericCMS"])

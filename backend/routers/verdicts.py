@@ -14,6 +14,8 @@ from backend.core.verdict_contract import VerdictDictum, VerdictStatus
 from backend.core.coverage_ledger import CoverageLedger
 from backend.core.verdict_engine import VerdictEngine
 from services.report_generator import ReportGenerator
+from auth_security import get_current_user, require_permission, Role, Permission
+from fastapi import Depends
 import logging
 
 router = APIRouter()
@@ -43,7 +45,7 @@ class VerdictResponse(BaseModel):
 
 
 @router.post("/issue")
-async def issue_verdict(request: VerdictRequest) -> VerdictResponse:
+async def issue_verdict(request: VerdictRequest, current_user=Depends(require_permission(Permission.REPORT_CREATE))) -> VerdictResponse:
     """
     Emite veredicto basado en Coverage Ledger.
     Las reglas de gating son ESTRICTAS.
@@ -96,7 +98,7 @@ async def issue_verdict(request: VerdictRequest) -> VerdictResponse:
 
 
 @router.get("/{scan_id}")
-async def get_verdict(scan_id: str) -> Dict[str, Any]:
+async def get_verdict(scan_id: str, current_user=Depends(get_current_user)) -> Dict[str, Any]:
     """
     Obtiene veredicto de un scan.
     Incluye: status, reasoning, blockers, coverage.
@@ -134,7 +136,7 @@ async def get_verdict(scan_id: str) -> Dict[str, Any]:
 
 
 @router.get("/{scan_id}/report")
-async def get_full_report(scan_id: str) -> Dict[str, Any]:
+async def get_full_report(scan_id: str, current_user=Depends(get_current_user)) -> Dict[str, Any]:
     """
     Reporte técnico completo.
     Incluye: engines, vectors, dependencies, phases, ressource usage.
@@ -151,7 +153,7 @@ async def get_full_report(scan_id: str) -> Dict[str, Any]:
 
 
 @router.get("/{scan_id}/report/executive")
-async def get_executive_summary(scan_id: str) -> Dict[str, Any]:
+async def get_executive_summary(scan_id: str, current_user=Depends(get_current_user)) -> Dict[str, Any]:
     """
     Resumen ejecutivo para stakeholders.
     Veredicto + cobertura + recomendaciones.
@@ -168,7 +170,7 @@ async def get_executive_summary(scan_id: str) -> Dict[str, Any]:
 
 
 @router.get("/{scan_id}/report/coverage")
-async def get_coverage_report(scan_id: str) -> Dict[str, Any]:
+async def get_coverage_report(scan_id: str, current_user=Depends(get_current_user)) -> Dict[str, Any]:
     """
     Solo análisis de cobertura.
     Por qué no es NO_VULNERABLE (si aplica).
@@ -210,7 +212,7 @@ async def get_coverage_report(scan_id: str) -> Dict[str, Any]:
 
 
 @router.get("/{scan_id}/report/non-technical")
-async def get_non_technical_summary(scan_id: str) -> Dict[str, Any]:
+async def get_non_technical_summary(scan_id: str, current_user=Depends(get_current_user)) -> Dict[str, Any]:
     """
     Resumen para no-técnicos.
     Lenguaje simple, sin jerga de seguridad.
@@ -227,7 +229,7 @@ async def get_non_technical_summary(scan_id: str) -> Dict[str, Any]:
 
 
 @router.get("/stats")
-async def verdict_statistics() -> Dict[str, Any]:
+async def verdict_statistics(current_user=Depends(get_current_user)) -> Dict[str, Any]:
     """
     Estadísticas de veredictos emitidos.
     """

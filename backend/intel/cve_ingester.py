@@ -10,6 +10,7 @@ import os
 from datetime import datetime, timezone
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
+import httpx
 
 logger = logging.getLogger("cerberus.intel.cve")
 
@@ -33,46 +34,135 @@ class CVEIngester:
     async def fetch_latest_cves(self, limit: int = 50, min_score: float = 7.0) -> List[CVE]:
         """Fetch latest high-severity CVEs."""
         logger.info(f"Fetching latest CVEs (min_cvss={min_score})...")
-        
-        # In a real implementation, we would call NVD API with aiohttp
-        # async with aiohttp.ClientSession() as session:
-        #    ...
-        
-        # Simulating API response for "offline" development
-        mock_data = [
-            {
-                "cve_id": "CVE-2026-0001",
-                "description": "Critical SQL Injection in GenericCMS v4.0 allows unauthenticated RCE.",
-                "cvss_score": 9.8,
-                "published_date": datetime.now(timezone.utc).isoformat(),
-                "references": ["https://github.com/advisories/GHSA-1234"],
-                "affected_products": ["GenericCMS"]
-            },
-            {
-                "cve_id": "CVE-2026-0002",
-                "description": "Buffer Overflow in OldServer allows DoS.",
-                "cvss_score": 7.5,
-                "published_date": datetime.now(timezone.utc).isoformat(),
-                "references": [],
-                "affected_products": ["OldServer"]
-            }
-        ]
-        
+
+        rows: List[Dict[str, Any]] = []
+        try:
+            rows = await self._fetch_nvd(limit=limit)
+        except Exception as e:
+            logger.warning(f"NVD fetch failed, falling back to cached intel feed: {e}")
+            rows = self._load_cached_rows()
+
         results = []
-        for item in mock_data:
-            if item["cvss_score"] >= min_score:
+        for item in rows:
+            score = float(item.get("cvss_score", 0.0) or 0.0)
+            if score >= min_score:
                 cve = CVE(
-                    cve_id=item["cve_id"],
-                    description=item["description"],
-                    cvss_score=item["cvss_score"],
-                    published_date=item["published_date"],
-                    references=item["references"],
-                    affected_products=item["affected_products"]
+                    cve_id=item.get("cve_id", "UNKNOWN"),
+                    description=item.get("description", ""),
+                    cvss_score=score,
+                    published_date=item.get("published_date", datetime.now(timezone.utc).isoformat()),
+                    references=item.get("references", []),
+                    affected_products=item.get("affected_products", []),
                 )
                 results.append(cve)
                 self._cache_cve(cve)
-        
+
         return results
+
+    async def _fetch_nvd(self, limit: int) -> List[Dict[str, Any]]:
+        params = {
+            "resultsPerPage": max(1, min(int(limit), 2000)),
+        }
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(self.nvd_api_url, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+        vulnerabilities = data.get("vulnerabilities", [])
+        rows: List[Dict[str, Any]] = []
+        for item in vulnerabilities:
+            cve_obj = (item or {}).get("cve", {})
+            cve_id = cve_obj.get("id")
+            if not cve_id:
+                continue
+
+            descriptions = cve_obj.get("descriptions", []) or []
+            description = ""
+            for d in descriptions:
+                if isinstance(d, dict) and d.get("lang") == "en":
+                    description = d.get("value", "")
+                    break
+            if not description and descriptions:
+                description = (descriptions[0] or {}).get("value", "")
+
+            refs = []
+            for r in cve_obj.get("references", []) or []:
+                url = (r or {}).get("url")
+                if isinstance(url, str) and url:
+                    refs.append(url)
+
+            products = self._extract_products(cve_obj.get("configurations", []) or [])
+            score = self._extract_cvss_score(cve_obj.get("metrics", {}) or {})
+
+            rows.append(
+                {
+                    "cve_id": cve_id,
+                    "description": description,
+                    "cvss_score": score,
+                    "published_date": cve_obj.get("published", datetime.now(timezone.utc).isoformat()),
+                    "references": refs,
+                    "affected_products": products,
+                }
+            )
+        return rows
+
+    @staticmethod
+    def _extract_cvss_score(metrics: Dict[str, Any]) -> float:
+        for key in ("cvssMetricV40", "cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
+            metric_list = metrics.get(key)
+            if not isinstance(metric_list, list) or not metric_list:
+                continue
+            first = metric_list[0] or {}
+            cvss_data = first.get("cvssData", {}) or {}
+            score = cvss_data.get("baseScore")
+            try:
+                return float(score)
+            except Exception:
+                continue
+        return 0.0
+
+    @staticmethod
+    def _extract_products(configurations: List[Dict[str, Any]]) -> List[str]:
+        products: List[str] = []
+
+        def _walk(nodes: List[Dict[str, Any]]) -> None:
+            for node in nodes:
+                for match in node.get("cpeMatch", []) or []:
+                    criteria = (match or {}).get("criteria", "")
+                    if isinstance(criteria, str) and criteria.startswith("cpe:2.3:"):
+                        parts = criteria.split(":")
+                        if len(parts) > 4 and parts[4] and parts[4] != "*":
+                            products.append(parts[4])
+                children = node.get("nodes", []) or []
+                if children:
+                    _walk(children)
+
+        for conf in configurations:
+            nodes = (conf or {}).get("nodes", []) or []
+            _walk(nodes)
+
+        # Preserve order while deduplicating.
+        seen = set()
+        unique = []
+        for p in products:
+            if p not in seen:
+                seen.add(p)
+                unique.append(p)
+        return unique
+
+    def _load_cached_rows(self) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        try:
+            for fn in os.listdir(self.cache_dir):
+                if not fn.endswith(".json"):
+                    continue
+                with open(os.path.join(self.cache_dir, fn), "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict) and data.get("cve_id"):
+                    rows.append(data)
+        except Exception as e:
+            logger.warning(f"Failed to load cached CVE rows: {e}")
+        return rows
 
     def _cache_cve(self, cve: CVE):
         """Cache CVE to disk."""

@@ -272,6 +272,7 @@ from backend.core.jobs_sqlite import (
     update_job as _jobs_sqlite_update_job,
 )
 from backend.core.runtime_state import CerberusState
+from backend.core.events import CerberusBroadcaster
 from backend.core.scan_utils import (
     AUTOPILOT_MAX_PHASE,
     OMNI_ALLOWED_MODES,
@@ -289,6 +290,7 @@ from backend.core.worker_runner import run_standalone_worker as _worker_runner_r
 from backend.db.postgres_store import PostgresStore
 from backend.routers.verdicts import router as verdicts_router
 from backend.routers.engines import router as engines_router
+from backend.routers.loot import router as loot_router
 from exploits.metasploit_bridge import MetasploitBridge
 from backend.c2.c2_server import C2Server
 from exfiltration.dns_tunnel import DNSTunnelListener
@@ -326,6 +328,8 @@ SQLMAP_PATH = os.environ.get('CERBERUS_SQLMAP_PATH', os.path.join(os.path.dirnam
 ALLOWED_TARGETS = os.environ.get('ALLOWED_TARGETS', '').split(',') if os.environ.get('ALLOWED_TARGETS') else []
 HISTORY_DIR = os.environ.get("HISTORY_DIR", os.path.join(os.path.dirname(__file__), 'history'))
 os.makedirs(HISTORY_DIR, exist_ok=True)
+LOOT_DIR = os.environ.get("LOOT_DIR", os.path.join(os.path.dirname(__file__), 'loot'))
+os.makedirs(LOOT_DIR, exist_ok=True)
 
 # History storage policy:
 # - In development: keep plaintext JSON for convenience.
@@ -548,6 +552,17 @@ async def lifespan(app: FastAPI):
     """Application startup and shutdown"""
     logger.info("🔐 Cerberus Pro API starting - Security Mode ENABLED")
     _init_audit_db()
+    
+    # P7-05: Anti-Tamper audit verification on startup
+    try:
+        audit_status = _audit_runtime_verify_chain_impl(deps=_audit_runtime_deps())
+        if audit_status.get("valid"):
+            logger.info("🛡️ Audit chain integrity verified")
+        else:
+            logger.warning(f"⚠️ AUDIT CHAIN TAMPERED OR BROKEN: {audit_status.get('error')}")
+    except Exception as e:
+        logger.error(f"Failed to verify audit chain: {e}")
+
     _init_jobs_db()
 
     # Init optional Redis client for multi-instance job queue.
@@ -1056,7 +1071,12 @@ app.add_middleware(
     allow_origins=(
         ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5178", "http://127.0.0.1:5178", "http://localhost:8001", "http://127.0.0.1:8001"]
         if ENVIRONMENT == 'development'
-        else ["https://*.cerberus.local"]
+        else []
+    ),
+    allow_origin_regex=(
+        None
+        if ENVIRONMENT == 'development'
+        else r"^https://([A-Za-z0-9-]+\.)*cerberus\.local(?::\d+)?$"
     ),
     allow_credentials=True,
     allow_methods=["*"],
@@ -1394,6 +1414,7 @@ async def stop_scan(
 # History router (extracted from monolith)
 from backend.routers.history import router as history_router
 app.include_router(history_router, prefix="/history", tags=["history"])
+app.include_router(loot_router, prefix="/api/loot", tags=["loot"])
 # [HISTORY ENDPOINTS EXTRACTED TO routers/history.py]
 
 
@@ -1466,7 +1487,9 @@ app.include_router(c2_router, prefix="/admin/agents", tags=["agents"], include_i
 
 # Offensive router (extracted from monolith)
 from backend.routers.offensive import router as offensive_router
+from backend.routers.ai import router as ai_router
 app.include_router(offensive_router, tags=["offensive"])
+app.include_router(ai_router, prefix="/ai", tags=["ai"])
 # [METASPLOIT + EXFIL + PAYLOAD + PRIVESC ENDPOINTS EXTRACTED TO routers/offensive.py]
 
 
@@ -1490,6 +1513,10 @@ async def websocket_endpoint(websocket: WebSocket):
 
 async def broadcast(obj: dict):
     await _ws_broadcast_impl(obj, _websocket_runtime_deps())
+
+
+# Reconnect internal engine telemetry to frontend websocket clients.
+CerberusBroadcaster.register_ws_handler(broadcast)
 
 
 @app.websocket("/ws/agent")
@@ -1575,6 +1602,32 @@ async def admin_kick_jobs(
         deps=_system_ops_runtime_deps(),
         force_start=bool(force_start),
     )
+
+
+@app.post("/admin/killswitch")
+async def admin_killswitch(
+    current_user: JWTPayload = Depends(require_permission(Permission.ADMIN_KILLSWITCH)),
+):
+    """Emergency Stop: Halts all system activities and prevents new jobs."""
+    state.kill_switch_active = True
+    logger.critical(f"🚨 KILL-SWITCH TRIGGERED by {current_user.sub}")
+    
+    # Cancel all running job tasks
+    active_tasks = list(state.current_job_task_by_user.values())
+    for t in active_tasks:
+        if not t.done():
+            t.cancel()
+    
+    # Broadcast through WebSockets
+    try:
+        await _ws_broadcast_impl(
+            {"type": "system_event", "event": "kill_switch_triggered", "operator": current_user.sub},
+            deps=_ws_runtime_deps()
+        )
+    except Exception:
+        pass
+        
+    return {"status": "triggered", "cancelled_tasks": len(active_tasks)}
 
 
 @app.get("/status")

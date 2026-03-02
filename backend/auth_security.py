@@ -8,6 +8,7 @@ from typing import Optional, List, Dict, Set
 from enum import Enum
 import os
 import secrets
+import importlib
 from fastapi import Request, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, OAuth2
 from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
@@ -64,6 +65,7 @@ class Permission(str, Enum):
     ADMIN_CONFIG = "admin:config"
     ADMIN_AUDIT = "admin:audit"
     ADMIN_SECRETS = "admin:secrets"
+    ADMIN_KILLSWITCH = "admin:killswitch"
     
     # Target management
     TARGET_MANAGE = "target:manage"
@@ -125,7 +127,13 @@ class SecurityConfig:
     # JWT Configuration
     JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
     JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "")
+    
     if not JWT_SECRET_KEY:
+        if os.environ.get("ENVIRONMENT") == "production":
+            import sys
+            print("CRITICAL [P0-06]: JWT_SECRET_KEY IS NOT SET IN PRODUCTION! Halting startup.", file=sys.stderr)
+            sys.exit(1)
+            
         import warnings
         warnings.warn("SEC-003: JWT_SECRET_KEY not set! Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\"", stacklevel=2)
         JWT_SECRET_KEY = "INSECURE-DEFAULT-CHANGE-ME"
@@ -161,7 +169,13 @@ class SecurityConfig:
     MFA_MAX_ATTEMPTS = 3
     
     # Encryption
-    MFA_ENCRYPTION_KEY = os.environ.get("MFA_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    MFA_ENCRYPTION_KEY = os.environ.get("MFA_ENCRYPTION_KEY", "")
+    if not MFA_ENCRYPTION_KEY:
+        if os.environ.get("ENVIRONMENT") == "production":
+            import sys
+            print("CRITICAL [P0-06]: MFA_ENCRYPTION_KEY IS NOT SET IN PRODUCTION! Halting startup.", file=sys.stderr)
+            sys.exit(1)
+        MFA_ENCRYPTION_KEY = Fernet.generate_key().decode()
 
 
 # ============================================================================
@@ -208,6 +222,20 @@ class UserCreate(BaseModel):
         if SecurityConfig.REQUIRE_SPECIAL_CHARS and not any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?' for c in v):
             raise ValueError('Password must contain special character')
         return v
+
+class UserResponse(BaseModel):
+    """User data model without sensitive fields (P0-02)"""
+    id: str
+    username: str
+    email: EmailStr
+    full_name: str
+    role: Role
+    is_active: bool
+    created_at: datetime
+    last_login: Optional[datetime]
+    mfa_enabled: bool
+    
+    model_config = ConfigDict(use_enum_values=True)
 
 class LoginRequest(BaseModel):
     """Login request"""
@@ -406,6 +434,13 @@ class JWTManager:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Not a refresh token"
+            )
+        
+        # P7-04: Compartmentalization - Agents cannot refresh tokens
+        if payload.role == Role.AGENT:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Operational Security Policy: Agent tokens are non-renewable."
             )
         
         return JWTManager.create_token(
@@ -608,6 +643,20 @@ class OAuth2PasswordBearerWithCookie(OAuth2):
 
 oauth2_cookie_scheme = OAuth2PasswordBearerWithCookie(token_url="/auth/login", auto_error=False)
 
+
+def _is_token_revoked(payload: JWTPayload) -> bool:
+    """Resolve runtime state lazily and check token revocation without tight coupling."""
+    for module_name in ("backend.ares_api", "ares_api"):
+        try:
+            module = importlib.import_module(module_name)
+            state = getattr(module, "state", None)
+            revoked_tokens = getattr(state, "revoked_tokens", None)
+            if isinstance(revoked_tokens, set):
+                return payload.jti in revoked_tokens
+        except Exception:
+            continue
+    return False
+
 async def get_current_user(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
@@ -631,16 +680,36 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated"
         )
-        
-    return JWTManager.verify_token(token)
 
-def require_permission(required_permission: Permission):
-    """Dependency to require specific permission"""
+    payload = JWTManager.verify_token(token)
+    if _is_token_revoked(payload):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token revoked"
+        )
+    return payload
+
+def require_permission(required_permission: Permission | List[Permission]):
+    """Dependency to require one or more permissions."""
+    if isinstance(required_permission, (list, tuple, set)):
+        permissions = list(required_permission)
+        if not permissions:
+            raise ValueError("At least one permission is required")
+        invalid = [p for p in permissions if not isinstance(p, Permission)]
+        if invalid:
+            raise TypeError("require_permission only accepts Permission values")
+    else:
+        if not isinstance(required_permission, Permission):
+            raise TypeError("require_permission only accepts Permission values")
+        permissions = [required_permission]
+
     def permission_checker(user: JWTPayload = Depends(get_current_user)) -> JWTPayload:
-        if not AccessControl.check_permission(Role(user.role), required_permission):
+        user_role = Role(user.role)
+        if not any(AccessControl.check_permission(user_role, p) for p in permissions):
+            required_values = ", ".join(p.value for p in permissions)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission required: {required_permission.value}"
+                detail=f"Permission required: {required_values}"
             )
         return user
     return permission_checker

@@ -44,4 +44,5 @@ class CerberusState:
         # Enterprise multi-instance queue support
         self.redis = None  # redis_async.Redis | None
         self.queue_reconciler_task: Optional[asyncio.Task] = None
+        self.kill_switch_active: bool = False
 

@@ -39,7 +39,7 @@ def _get_normalize_job_kind(kind):
 # HISTORY ENDPOINTS
 # ============================================================================
 
-@router.get("/", response_model=List[HistorySummaryItem])
+@router.get("", response_model=List[HistorySummaryItem])
 async def get_history(current_user: JWTPayload = Depends(require_permission(Permission.SCAN_READ))):
     """List all saved scan reports"""
     history_dir = _get_history_dir()

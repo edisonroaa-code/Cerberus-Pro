@@ -2,7 +2,32 @@ import hashlib
 import json
 import re
 from datetime import datetime, timezone
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
+
+
+def redact_local_info(text: Any) -> Any:
+    """
+    Redact sensitive local information (absolute paths, usernames) from text or lists.
+    Replaces common local path patterns with neutral tokens.
+    """
+    if isinstance(text, list):
+        return [redact_local_info(item) for item in text]
+    if not isinstance(text, str):
+        return text
+
+    # Define patterns to redact
+    # 1. Absolute Windows paths (e.g., C:\Users\Username\...)
+    # We replace the user home part while keeping the relative project structure if possible
+    text = re.sub(r'[A-Za-z]:\\Users\\[^\\]+\\', r'<CERBERUS_HOME>\\', text)
+    
+    # 2. General path-like strings that might contain the username
+    # This is a bit more aggressive to ensure coverage
+    text = re.sub(r'/Users/[^/]+/', r'<CERBERUS_HOME>/', text)
+    
+    # 3. Specific known local path to this installation if detected
+    # (Optional: could pass project_root dynamically, but regex above handles most cases)
+    
+    return text
 
 
 class SmartFilterEngine:
@@ -216,7 +241,10 @@ def synthesize_structured_findings(target: str, results: List[Dict]) -> List[Dic
             vulnerable = bool(r.get("vulnerable"))
             evidence = [str(e) for e in (r.get("evidence") or []) if str(e).strip()]
             exit_code = int(r.get("exit_code") or 0)
-            cmd = r.get("command") or []
+            
+            # Sanitize command for privacy
+            raw_cmd = r.get("command") or []
+            cmd = redact_local_info(raw_cmd)
 
             # Heuristics: assign type and confidence
             if "UNION" in vec or "ERROR" in vec or "STACKED" in vec or "BOOLEAN" in vec or "TIME" in vec:
@@ -266,7 +294,8 @@ def synthesize_structured_findings(target: str, results: List[Dict]) -> List[Dic
             try:
                 dbms_l = (str(dbms or "").lower() if dbms else "")
                 if isinstance(cmd, list) and cmd:
-                    poctemplate = " ".join([str(x) for x in cmd])
+                    joined_cmd = " ".join([str(x) for x in cmd])
+                    poctemplate = redact_local_info(joined_cmd)
                 else:
                     # Generic curl fallback
                     param = parameter or "id"
@@ -276,7 +305,7 @@ def synthesize_structured_findings(target: str, results: List[Dict]) -> List[Dic
                 # DBMS-specific nicer PoCs when DBMS known
                 if dbms_l:
                     if "mysql" in dbms_l:
-                        poctemplate = f"mysql -h <host> -u <user> -p -e \"SELECT 1;\""  # placeholder
+                        poctemplate = f"mysql -h <host> -u <user> -p -e \"SELECT 1;\""
                     elif "postgres" in dbms_l or "psql" in dbms_l:
                         poctemplate = f"psql postgresql://<user>@<host>:5432/<db> -c \"SELECT 1;\""
                     elif "mssql" in dbms_l or "sql server" in dbms_l:

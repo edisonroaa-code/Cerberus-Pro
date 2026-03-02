@@ -4,7 +4,7 @@
  */
 
 export type UnifiedMode = 'web' | 'graphql' | 'direct_db' | 'ws' | 'mqtt' | 'grpc';
-export type UnifiedVector = 'UNION' | 'ERROR' | 'TIME' | 'BOOLEAN' | 'STACKED' | 'INLINE' | 'AIIE';
+export type UnifiedVector = 'UNION' | 'ERROR' | 'TIME' | 'BOOLEAN' | 'STACKED' | 'INLINE' | 'AIIE' | 'NOSQL' | 'SSTI';
 export type DirectDbEngine = 'mysql' | 'postgres' | 'mssql' | 'oracle' | 'sqlite' | 'mongodb' | 'redis';
 
 export interface UnifiedUiConfig {
@@ -37,7 +37,7 @@ export interface UnifiedCapabilities {
 }
 
 export const DEFAULT_UNIFIED_CONFIG: UnifiedUiConfig = {
-    enabled: false,
+    enabled: true,
     mode: 'web',
     vectors: ['UNION', 'ERROR', 'TIME', 'BOOLEAN'],
     maxParallel: 4,
@@ -57,7 +57,7 @@ export const UNIFIED_PRESETS: Record<string, Partial<UnifiedUiConfig>> = {
     },
     rapid_exploit: {
         mode: 'web',
-        vectors: ['UNION', 'ERROR', 'TIME', 'BOOLEAN', 'STACKED', 'AIIE'],
+        vectors: ['UNION', 'ERROR', 'TIME', 'BOOLEAN', 'STACKED', 'AIIE', 'NOSQL', 'SSTI'],
         maxParallel: 6,
         aiie: true
     },

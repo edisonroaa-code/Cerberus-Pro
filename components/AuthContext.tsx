@@ -28,13 +28,18 @@ interface TokenResponse {
 }
 
 const AuthContext = React.createContext<any>(null);
-const AUTH_FETCH_TIMEOUT_MS = 12000;
+const AUTH_FETCH_TIMEOUT_MS = 30000;
 
 const fetchWithTimeout = async (input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = AUTH_FETCH_TIMEOUT_MS) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      throw new Error(`Request timeout after ${timeoutMs}ms`);
+    }
+    throw error;
   } finally {
     clearTimeout(timer);
   }
@@ -332,7 +337,7 @@ export const LoginPage: React.FC = () => {
             <li className="flex items-center gap-2"><span className="w-1 h-1 bg-cyan-500 rounded-full" />Multi-factor authentication (MFA/2FA)</li>
             <li className="flex items-center gap-2"><span className="w-1 h-1 bg-cyan-500 rounded-full" />Role-based access control (RBAC)</li>
             <li className="flex items-center gap-2"><span className="w-1 h-1 bg-cyan-500 rounded-full" />Complete audit trail logging</li>
-            <li className="flex items-center gap-2"><span className="w-1 h-1 bg-cyan-500 rounded-full" />TLS 1.3 encryption</li>
+            <li className="flex items-center gap-2"><span className="w-1 h-1 bg-cyan-500 rounded-full" />TLS (segun despliegue y configuracion)</li>
           </ul>
         </div>
       </div>

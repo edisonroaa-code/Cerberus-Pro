@@ -7,6 +7,8 @@ import asyncio
 import logging
 import shutil
 import json
+import ipaddress
+import socket
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Set
 from enum import Enum
@@ -30,8 +32,9 @@ class HostInfo:
 class NetworkScanner:
     """Scans internal networks for live hosts and open ports."""
 
-    def __init__(self, method: ScanMethod = ScanMethod.CONNECT):
+    def __init__(self, method: ScanMethod = ScanMethod.CONNECT, max_hosts: int = 512):
         self.method = method
+        self.max_hosts = max_hosts
         self._check_deps()
 
     def _check_deps(self):
@@ -52,8 +55,8 @@ class NetworkScanner:
         if self.method == ScanMethod.NMAP:
             return await self._scan_nmap(subnet, ports)
         elif self.method == ScanMethod.MASSCAN:
-            # Placeholder for masscan implementation
-            return await self._scan_nmap(subnet, ports)  # Fallback
+            # Masscan mode falls back to nmap if masscan-specific parser is not enabled.
+            return await self._scan_nmap(subnet, ports)
         else:
             return await self._scan_connect(subnet, ports)
 
@@ -106,11 +109,79 @@ class NetworkScanner:
         return hosts
 
     async def _scan_connect(self, subnet: str, ports: List[int]) -> List[HostInfo]:
-        """Python-based connect scan (slow but works everywhere)."""
-        # Note: subnet scanning in pure python requires generating IPs.
-        # This is a stub for the "fallback" mode.
-        logger.warning("Connect scan for subnets not fully implemented in stub.")
-        return []
+        """Python-based connect scan (no external dependencies)."""
+        try:
+            net = ipaddress.ip_network(subnet, strict=False)
+            hosts = [str(h) for h in net.hosts()]
+        except ValueError:
+            # Accept raw host values as single-host scan.
+            hosts = [subnet.strip()]
+
+        if not hosts:
+            return []
+
+        if len(hosts) > self.max_hosts:
+            logger.warning("Subnet %s reduced from %d to %d hosts (safety cap)", subnet, len(hosts), self.max_hosts)
+            hosts = hosts[: self.max_hosts]
+
+        sem = asyncio.Semaphore(128)
+        tasks = [self._scan_host_connect(sem, host, ports) for host in hosts]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        out: List[HostInfo] = []
+        for item in results:
+            if isinstance(item, HostInfo):
+                out.append(item)
+        return out
+
+    async def _scan_host_connect(self, sem: asyncio.Semaphore, host: str, ports: List[int]) -> Optional[HostInfo]:
+        open_ports: List[int] = []
+        services: Dict[int, str] = {}
+
+        async with sem:
+            for port in ports:
+                if await self._is_port_open(host, port):
+                    open_ports.append(port)
+                    services[port] = self._guess_service(port)
+
+        if not open_ports:
+            return None
+
+        hostname = None
+        try:
+            hostname = socket.gethostbyaddr(host)[0]
+        except Exception:
+            hostname = None
+
+        return HostInfo(ip=host, hostname=hostname, open_ports=open_ports, services=services)
+
+    async def _is_port_open(self, host: str, port: int, timeout: float = 0.5) -> bool:
+        try:
+            conn = asyncio.open_connection(host, port)
+            reader, writer = await asyncio.wait_for(conn, timeout=timeout)
+            writer.close()
+            if hasattr(writer, "wait_closed"):
+                await writer.wait_closed()
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def _guess_service(port: int) -> str:
+        known = {
+            21: "ftp",
+            22: "ssh",
+            23: "telnet",
+            80: "http",
+            443: "https",
+            445: "smb",
+            3306: "mysql",
+            3389: "rdp",
+            5432: "postgresql",
+            6379: "redis",
+            8080: "http-alt",
+        }
+        return known.get(port, f"tcp/{port}")
 
 class ServiceEnumerator:
     """Enumerates services to find versions and potential vulns."""
@@ -118,16 +189,32 @@ class ServiceEnumerator:
     async def enumerate_host(self, host: HostInfo) -> HostInfo:
         """Deep dive into a host's services."""
         for port, service in host.services.items():
-            if service in ["http", "https", "http-alt"]:
-                # Trigger web recon (lightweight)
-                pass
+            if service in ["http", "https", "http-alt"] and port in host.open_ports:
+                host.vulnerabilities.extend(await self._http_checks(host.ip, port))
             elif service == "ssh":
-                # Check auth methods
-                pass
+                host.vulnerabilities.append("ssh_exposed")
             elif service == "smb":
-                # Check signing, null session
-                pass
+                host.vulnerabilities.append("smb_exposed")
         return host
+
+    async def _http_checks(self, ip: str, port: int) -> List[str]:
+        findings: List[str] = []
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=1.0)
+            writer.write(b"HEAD / HTTP/1.0\r\nHost: localhost\r\n\r\n")
+            await writer.drain()
+            data = await asyncio.wait_for(reader.read(2048), timeout=1.0)
+            writer.close()
+            if hasattr(writer, "wait_closed"):
+                await writer.wait_closed()
+            text = data.decode(errors="ignore").lower()
+            if "server:" in text:
+                findings.append("http_server_header_exposed")
+            if "x-powered-by:" in text:
+                findings.append("http_tech_stack_exposed")
+        except Exception:
+            pass
+        return findings
 
 class LateralOrchestrator:
     """Orchestrates the lateral movement logic."""

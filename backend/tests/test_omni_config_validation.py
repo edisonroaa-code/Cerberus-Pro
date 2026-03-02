@@ -43,3 +43,24 @@ def test_validate_omni_rejects_legacy_omni_contract():
     except HTTPException as exc:
         assert exc.status_code == 400
         assert "config.unified" in str(exc.detail)
+
+
+def test_validate_omni_accepts_nosql_vector():
+    cfg = {
+        "mode": "web",
+        "unified": {"maxParallel": 2, "vectors": ["NOSQL"]},
+    }
+    assert validate_omni_config(cfg) == "web"
+
+
+def test_validate_omni_rejects_unknown_vector():
+    cfg = {
+        "mode": "web",
+        "unified": {"maxParallel": 2, "vectors": ["VECTOR_INEXISTENTE"]},
+    }
+    try:
+        validate_omni_config(cfg)
+        assert False, "Expected HTTPException"
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert "vectores" in str(exc.detail).lower()

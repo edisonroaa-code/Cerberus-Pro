@@ -11,6 +11,7 @@ from backend.core.verdict_engine import VerdictEngine
 import json
 import logging
 import os
+from html import escape
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -305,10 +306,86 @@ class ReportGenerator:
         return filepath
     
     def export_to_html(self) -> str:
-        """Exporta reporte a HTML (stub)."""
-        # Implementación completa en producción
-        exec_summary = self.generate_executive_summary()
-        return f"<html><body><h1>{exec_summary['verdict']['status']}</h1></body></html>"
+        """Exporta reporte a HTML completo."""
+        summary = self.generate_executive_summary()
+        detailed = self.generate_detailed_report()
+
+        verdict = escape(str(summary["verdict"]["status"]))
+        confidence = escape(str(summary["verdict"]["confidence_level"]))
+        coverage = f"{float(summary['coverage']['percentage']):.1f}%"
+        primary_reason = escape(str(summary["verdict"]["primary_reason"]["detail"]))
+        recommendations = summary.get("recommendations", [])
+        blockers = detailed.get("conclusive_blockers", [])
+        phases = detailed.get("phase_execution", [])
+
+        rec_items = "".join(f"<li>{escape(str(r))}</li>" for r in recommendations) or "<li>No recommendations</li>"
+        blocker_rows = "".join(
+            "<tr>"
+            f"<td>{escape(str(b.get('category', '')))}</td>"
+            f"<td>{escape(str(b.get('phase', '')))}</td>"
+            f"<td>{escape(str(b.get('detail', '')))}</td>"
+            f"<td>{'Yes' if b.get('recoverable') else 'No'}</td>"
+            "</tr>"
+            for b in blockers
+        ) or "<tr><td colspan='4'>No blockers</td></tr>"
+        phase_rows = "".join(
+            "<tr>"
+            f"<td>{escape(str(p.get('phase', '')))}</td>"
+            f"<td>{escape(str(p.get('status', '')))}</td>"
+            f"<td>{int(p.get('duration_ms', 0) or 0)}</td>"
+            f"<td>{int(p.get('items_processed', 0) or 0)}</td>"
+            f"<td>{int(p.get('items_failed', 0) or 0)}</td>"
+            "</tr>"
+            for p in phases
+        ) or "<tr><td colspan='5'>No phase data</td></tr>"
+
+        return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cerberus Report {escape(str(self.verdict.scan_id))}</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 24px; color: #0f172a; }}
+    h1, h2 {{ margin-bottom: 8px; }}
+    .meta {{ color: #475569; margin-bottom: 20px; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 16px 0; }}
+    .card {{ border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; background: #f8fafc; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 8px; }}
+    th, td {{ border: 1px solid #cbd5e1; padding: 6px; text-align: left; font-size: 13px; }}
+    th {{ background: #e2e8f0; }}
+  </style>
+</head>
+<body>
+  <h1>Cerberus Security Report</h1>
+  <div class="meta">Scan ID: {escape(str(self.verdict.scan_id))} | Generated: {escape(datetime.now(timezone.utc).isoformat())}</div>
+
+  <div class="grid">
+    <div class="card"><strong>Verdict</strong><br/>{verdict}</div>
+    <div class="card"><strong>Confidence</strong><br/>{confidence}</div>
+    <div class="card"><strong>Coverage</strong><br/>{coverage}</div>
+    <div class="card"><strong>Safety Assertion</strong><br/>{escape(str(summary['safety_assertion']))}</div>
+  </div>
+
+  <h2>Primary Reason</h2>
+  <p>{primary_reason}</p>
+
+  <h2>Recommendations</h2>
+  <ul>{rec_items}</ul>
+
+  <h2>Conclusive Blockers</h2>
+  <table>
+    <thead><tr><th>Category</th><th>Phase</th><th>Detail</th><th>Recoverable</th></tr></thead>
+    <tbody>{blocker_rows}</tbody>
+  </table>
+
+  <h2>Phase Execution</h2>
+  <table>
+    <thead><tr><th>Phase</th><th>Status</th><th>Duration (ms)</th><th>Items</th><th>Failed</th></tr></thead>
+    <tbody>{phase_rows}</tbody>
+  </table>
+</body>
+</html>"""
     
     def generate_cytoscape_json(self, results: List[Dict]) -> str:
         """Generates JSON compatible with Cytoscape for visual attack flow."""

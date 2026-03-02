@@ -134,7 +134,7 @@ class Orchestrator:
         OrchestratorPhase.DISCOVERY: OrchestratorPhaseHandler(
             phase=OrchestratorPhase.DISCOVERY,
             description="Descubrir endpoints, formularios, parámetros",
-            timeout_ms=60000,
+            timeout_ms=300000,  # 5 minutos
             max_retries=3,
             entry_criteria=[
                 "preflight completed",
@@ -153,7 +153,7 @@ class Orchestrator:
         OrchestratorPhase.EXECUTION: OrchestratorPhaseHandler(
             phase=OrchestratorPhase.EXECUTION,
             description="Ejecutar payloads contra vectores descubiertos",
-            timeout_ms=180000,  # 3 minutos
+            timeout_ms=900000,  # 15 minutos
             max_retries=2,
             run_in_parallel=True,
             entry_criteria=[

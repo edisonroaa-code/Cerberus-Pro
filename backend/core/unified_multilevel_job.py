@@ -11,6 +11,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from backend.core.waf_feedback_loop import WAFResponseAnalyzer, AdaptiveStrategySelector
+from backend.core.cortex_ai import (
+    analyze_waf_signal, suggest_escalation,
+    correlate_findings_ai, generate_forensic_narrative,
+    parse_structured_findings,
+)
+
 
 @dataclass
 class UnifiedMultilevelJobDeps:
@@ -36,7 +43,7 @@ class UnifiedMultilevelJobDeps:
 
 def _map_vector_to_vuln(vector_name: str, vuln_type_enum: Any):
     v = str(vector_name or "").upper()
-    if v in {"UNION", "ERROR", "TIME", "BOOLEAN", "STACKED", "INLINE", "AIIE_SQLI", "ENGINE_SQLMAP"}:
+    if v in {"UNION", "ERROR", "TIME", "BOOLEAN", "STACKED", "INLINE", "AIIE", "ENGINE_SQLMAP"}:
         return vuln_type_enum.SQL_INJECTION
     if "SSTI" in v:
         return vuln_type_enum.COMMAND_INJECTION
@@ -78,15 +85,42 @@ async def run_unified_multilevel_job(
         deps.job_update_fn(scan_id, status="failed", finished_at=deps.job_now_fn(), error=str(exc))
         return
 
+    target_ref = str(normalized_cfg.get("url") or mode or "unknown")
+
+    # ── AI Sovereign Configuration ──────────────────────────────
+    # Ignore unsafe or suboptimal UI configs. The AI will dictate the baseline.
+    try:
+        from backend.core.cortex_ai import generate_initial_tactics
+        tactics = await generate_initial_tactics(target_ref, mode, normalized_cfg)
+        
+        # Override UI configuration with AI tactical setup
+        normalized_cfg["level"] = tactics.level
+        normalized_cfg["risk"] = tactics.risk
+        normalized_cfg["threads"] = tactics.threads
+        normalized_cfg["tamper"] = tactics.tamper
+        normalized_cfg["delay"] = max(int(normalized_cfg.get("delay", 0)), tactics.delay)
+        
+        # Log the AI takeover
+        msg = f"Dictamen inicial: Level {tactics.level}, Risk {tactics.risk}, Threads {tactics.threads}, Tampers: {tactics.tamper} ({tactics.reasoning})"
+        await deps.broadcast_log_fn("🧠 CORTEX", "INFO", f"Tomando control soberano de la configuración. {msg}")
+        deps.logger.info(f"🧠 Sovereign AI Setup: {msg}")
+    except Exception as e:
+        deps.logger.error(f"Failed to apply AI sovereign configuration: {e}")
+    # ────────────────────────────────────────────────────────────
+
     deps.state.omni_meta[user_id] = dict(deps.state.omni_meta.get(user_id) or {})
     deps.state.omni_meta[user_id]["scan_id"] = scan_id
     deps.state.omni_meta[user_id]["job_kind"] = kind_norm
     deps.state.omni_meta[user_id]["orchestrator"] = "unified_multilevel_v1"
 
-    target_ref = str(normalized_cfg.get("url") or mode or "unknown")
     orchestrator = deps.orchestrator_cls(scan_id=scan_id, target_url=target_ref)
     execution_payload: Dict[str, Any] = {}
     escalation_summary: Dict[str, Any] = {}
+    ai_decisions: List[Dict[str, Any]] = []
+
+    # WAF feedback loop + Cortex AI telemetry
+    waf_analyzer = WAFResponseAnalyzer(window_size=30)
+    strategy_selector = AdaptiveStrategySelector(waf_analyzer)
 
     async def _phase_preflight(_):
         return True
@@ -97,6 +131,89 @@ async def run_unified_multilevel_job(
     async def _phase_execution(_):
         nonlocal execution_payload
         execution_payload = (await deps.run_omni_surface_scan_fn(user_id, normalized_cfg)) or {}
+        
+    async def _phase_execution(_):
+        nonlocal execution_payload
+        
+        # Initial scan run
+        execution_payload = (await deps.run_omni_surface_scan_fn(user_id, normalized_cfg)) or {}
+        
+        # ── Cortex AI: Tactical Adaptation Loop ────────────────────────
+        # Allows the AI to "order" a reconfiguration if the first pass is blocked or ineffective
+        max_tactical_retries = 1
+        for attempt in range(max_tactical_retries):
+            findings = execution_payload.get("data", []) if isinstance(execution_payload, dict) else []
+            
+            # Feed results to WAF analyzer
+            for f in findings:
+                if not isinstance(f, dict): continue
+                evidence = f.get("evidence", [])
+                has_block = any(any(k in str(line).lower() for k in ("captcha", "waf", "too many requests", "403")) for line in evidence)
+                if has_block:
+                    waf_analyzer.record_interaction(status_code=403, latency_ms=100, is_blocked=True)
+                else:
+                    waf_analyzer.record_interaction(status_code=200, latency_ms=50, is_blocked=False)
+
+            evasion_ctx = strategy_selector.get_next_evasion_context()
+            block_rate = evasion_ctx.get("block_rate", 0)
+            
+            # Determine if AI should intervene
+            is_empty_or_inconclusive = len(findings) == 0
+            is_strict = normalized_cfg.get("autoPilot") or execution_payload.get("strict_conclusive") or True # Always trigger if empty
+            
+            should_intervene = block_rate > 0.15 or (is_empty_or_inconclusive and is_strict)
+            
+            if should_intervene:
+                deps.logger.info(f"🧠 Cortex AI: Analizando efectividad táctica (bloqueo={block_rate:.0%}, hallazgos={len(findings)})")
+                signal_data = {
+                    "block_rate": block_rate,
+                    "avg_latency_ms": waf_analyzer.get_average_latency(),
+                    "captcha_detected": waf_analyzer.detect_captcha(),
+                    "rate_limited": waf_analyzer.detect_rate_limiting(),
+                    "empty_results": len(findings) == 0,
+                    "attempt": attempt + 1
+                }
+                scan_ctx = {
+                    "target_url": target_ref,
+                    "current_profile": normalized_cfg.get("profile", "standard"),
+                    "current_phase": "execution",
+                }
+                
+                decision = await analyze_waf_signal(signal_data, scan_ctx)
+                ai_decisions.append({
+                    "phase": "execution",
+                    "attempt": attempt + 1,
+                    "decision": decision.__dict__,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+                
+                if decision.action != "retry" and decision.confidence > 0.6:
+                    deps.logger.info(f"🧠 ORDEN DE IA RECIBIDA: {decision.action.upper()} - {decision.reasoning}")
+                    await deps.broadcast_log_fn("🧠 CORTEX", "INFO", f"Ordenando cambio táctico: {decision.action} ({decision.reasoning})")
+                    
+                    # Apply AI orders to configuration
+                    if decision.action == "change_profile":
+                        normalized_cfg["profile"] = decision.params.get("profile", "stealth")
+                    elif decision.action == "switch_tamper":
+                        normalized_cfg["tamper"] = decision.params.get("tamper", "randomcase,space2comment")
+                    elif decision.action == "increase_jitter":
+                        normalized_cfg["delay"] = int(normalized_cfg.get("delay", 0)) + 2
+                    elif decision.action == "enable_stealth":
+                        normalized_cfg["stealth"] = True
+                    elif decision.action == "force_oob":
+                        normalized_cfg["oob"] = True
+                    
+                    # Log mutation
+                    deps.logger.info(f"🧠 Mutación aplicada por IA. Re-ejecutando con órdenes nuevas...")
+                    execution_payload = (await deps.run_omni_surface_scan_fn(user_id, normalized_cfg)) or {}
+                    # Continue loop to see if 2nd pass worked
+                else:
+                    deps.logger.info(f"🧠 Cortex AI: Manteniendo táctica actual ({decision.reasoning})")
+                    break # AI says continue as is
+            else:
+                break # Not blocked, no need for AI intervention
+                
+        # ── End Cortex AI ────────────────────────────────────────────
         return True
 
     async def _phase_escalation(_):
@@ -144,6 +261,7 @@ async def run_unified_multilevel_job(
 
         chain_orch = ChainOrchestrator()
         findings_added = 0
+        findings_added_objs = []
         for item in results_data:
             if not isinstance(item, dict):
                 continue
@@ -162,6 +280,12 @@ async def run_unified_multilevel_job(
                 severity="high",
             )
             chain_orch.register_finding(finding)
+            findings_added_objs.append({
+                "type": str(item.get("type", "unknown")),
+                "endpoint": target_ref,
+                "parameter": str(item.get("parameter", "auto")),
+                "severity": "high"
+            })
             findings_added += 1
 
         escalation_summary["findings_considered"] = findings_added
@@ -171,6 +295,22 @@ async def run_unified_multilevel_job(
             return True
 
         chains = chain_orch.discover_chains()
+        
+        # ── Cortex AI: Escalation Intelligence ──────────────────────
+        if chains and findings_added > 0:
+            plan = await suggest_escalation(findings_added_objs, {"coverage_percentage": 0}) # Simplified coverage
+            ai_decisions.append({
+                "phase": "escalation",
+                "plan": plan.__dict__,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+            deps.logger.info(
+                f"🧠 Escalación Cortex [{plan.source}]: "
+                f"ejecutar={plan.chains_to_execute}, omitir={plan.chains_to_skip} — {plan.reasoning}"
+            )
+            # Filter chains by AI recommendation if needed
+        # ── End Cortex AI ────────────────────────────────────────────
+
         escalation_summary["chains_discovered"] = len(chains)
         escalation_summary["chains_preview"] = [
             {
@@ -328,9 +468,32 @@ async def run_unified_multilevel_job(
         return True
 
     async def _phase_correlation(_):
+        findings = execution_payload.get("data", []) if isinstance(execution_payload, dict) else []
+        if len(findings) >= 2:
+            ai_corr = await correlate_findings_ai(findings)
+            ai_decisions.append({
+                "phase": "correlation",
+                "ai_correlation": ai_corr.__dict__,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+            if ai_corr.relationships:
+                deps.logger.info(f"🧠 Correlación Cortex [{ai_corr.source}]: halló {len(ai_corr.relationships)} relaciones")
         return True
 
     async def _phase_verdict(_):
+        findings = execution_payload.get("data", []) if isinstance(execution_payload, dict) else []
+        narrative = await generate_forensic_narrative(
+            verdict_status="VULNERABLE" if any(f.get("vulnerable") for f in findings) else "NO_VULNERABLE",
+            findings=findings,
+            coverage_pct=0,
+        )
+        orchestrator.context.execution_results["forensic_narrative"] = narrative
+        ai_decisions.append({
+            "phase": "verdict",
+            "narrative_length": len(narrative),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        deps.logger.info(f"🧠 Narrativa forense de Cortex generada")
         return True
 
     try:
@@ -361,15 +524,56 @@ async def run_unified_multilevel_job(
                     "conclusive": True,
                     "mode": mode,
                     "kind": kind_norm,
+                    "ai_decisions": ai_decisions,
+                    "forensic_narrative": orchestrator.context.execution_results.get("forensic_narrative", ""),
                 }
 
                 secure_target = target_ref.replace("://", "_").translate(str.maketrans('\\/?*|"<>:', "_________"))
                 filename = f"omni_{secure_target}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
                 filepath = os.path.join(deps.history_dir, filename)
 
-                with open(filepath, "w", encoding="utf-8") as f:
-                    json.dump(history_data, f, indent=4, ensure_ascii=False)
-
+                if is_vulnerable:
+                    # ── Fase 16: Automated Extraction & Loot Board ──
+                    try:
+                        from backend.ares_runtime import LOOT_DIR
+                        if not os.path.exists(LOOT_DIR):
+                            os.makedirs(LOOT_DIR, exist_ok=True)
+                            
+                        # Search for real data exfiltrated by engines (specifically AIIE)
+                        all_loot_fragments = []
+                        for f in findings:
+                            if isinstance(f, dict) and f.get("loot"):
+                                all_loot_fragments.append(f["loot"])
+                        
+                        if all_loot_fragments:
+                            deps.logger.info(f"[*] Post-Exploitation AI: Persistiendo datos exfiltrados...")
+                            
+                            # Merge fragments (usually one from AIIE)
+                            final_loot_data = {
+                                "scan_id": scan_id,
+                                "target": target_ref,
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "technique_used": findings[0].get("vector", "UNKNOWN") if findings else "UNKNOWN",
+                                "extracted_data": {}
+                            }
+                            
+                            for fragment in all_loot_fragments:
+                                final_loot_data["extracted_data"].update(fragment)
+                            
+                            loot_filename = f"loot_{secure_target}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
+                            loot_filepath = os.path.join(LOOT_DIR, loot_filename)
+                            
+                            with open(loot_filepath, "w", encoding="utf-8") as f:
+                                json.dump(final_loot_data, f, indent=4, ensure_ascii=False)
+                                
+                            deps.logger.info(f"[+] Loot real almacenado exitosamente en: {loot_filename}")
+                        else:
+                            deps.logger.info("[!] No se detectaron fragmentos de loot para persistir.")
+                            
+                    except Exception as loot_e:
+                        deps.logger.error(f"Fallo en la persistencia de Loot Real: {loot_e}")
+                    # ────────────────────────────────────────────────
+                
                 deps.job_update_fn(
                     scan_id,
                     status="completed",

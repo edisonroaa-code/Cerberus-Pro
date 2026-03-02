@@ -213,8 +213,26 @@ class CoverageLedger(BaseModel):
         return (
             self.budget_spent_time_ms >= self.budget_max_time_ms or
             self.budget_spent_retries >= self.budget_max_retries or
-            self.budget_spent_parallel_current >= self.budget_max_parallel
+            self.budget_spent_parallel_current >= self.budget_max_parallel or
+            self.is_tarpit_detected()
         )
+    
+    def is_tarpit_detected(self) -> bool:
+        """
+        P7-03: Active Resiliencie - Tarpit Detection.
+        Returns True if high latency suggests a defensive tarpit.
+        """
+        if not self.vector_records:
+            return False
+            
+        # Check last 3 records for high latency (threshold > 10s per vector or 3s per input)
+        recent = self.vector_records[-3:]
+        for r in recent:
+            if r.duration_ms > 10000: # 10 seconds per vector
+                return True
+            if r.inputs_tested > 0 and (r.duration_ms / r.inputs_tested) > 3000: # 3s per input
+                return True
+        return False
     
     def should_be_inconclusive(self) -> bool:
         """¿Debe ser forzado a INCONCLUSIVE por bloqueadores?"""

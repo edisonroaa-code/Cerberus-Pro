@@ -37,9 +37,11 @@ async def test_login_returns_token(login_payload):
     except ImportError:
         from backend.ares_api import app  # type: ignore
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post("/auth/login", json=login_payload)
+    async with app.router.lifespan_context(app):
+        from httpx import ASGITransport
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
+            resp = await client.post("/auth/login", json=login_payload)
 
     assert resp.status_code == 200, f"Login failed: {resp.text}"
     data = resp.json()
@@ -57,9 +59,11 @@ async def test_jobs_list_requires_auth():
     except ImportError:
         from backend.ares_api import app  # type: ignore
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get("/jobs")
+    async with app.router.lifespan_context(app):
+        from httpx import ASGITransport
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
+            resp = await client.get("/jobs")
 
     assert resp.status_code in (401, 403), f"Expected auth error, got {resp.status_code}"
 
@@ -74,16 +78,18 @@ async def test_authenticated_jobs_list(login_payload):
     except ImportError:
         from backend.ares_api import app  # type: ignore
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Step 1: Login
-        login_resp = await client.post("/auth/login", json=login_payload)
-        assert login_resp.status_code == 200
-        token = login_resp.json()["access_token"]
+    async with app.router.lifespan_context(app):
+        from httpx import ASGITransport
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
+            # Step 1: Login
+            login_resp = await client.post("/auth/login", json=login_payload)
+            assert login_resp.status_code == 200
+            token = login_resp.json()["access_token"]
 
-        # Step 2: List jobs with bearer token
-        headers = {"Authorization": f"Bearer {token}"}
-        jobs_resp = await client.get("/jobs", headers=headers)
+            # Step 2: List jobs with bearer token
+            headers = {"Authorization": f"Bearer {token}"}
+            jobs_resp = await client.get("/jobs", headers=headers)
 
     assert jobs_resp.status_code == 200, f"Jobs list failed: {jobs_resp.text}"
 
@@ -98,16 +104,18 @@ async def test_history_list_authenticated(login_payload):
     except ImportError:
         from backend.ares_api import app  # type: ignore
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Step 1: Login
-        login_resp = await client.post("/auth/login", json=login_payload)
-        assert login_resp.status_code == 200
-        token = login_resp.json()["access_token"]
+    async with app.router.lifespan_context(app):
+        from httpx import ASGITransport
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
+            # Step 1: Login
+            login_resp = await client.post("/auth/login", json=login_payload)
+            assert login_resp.status_code == 200
+            token = login_resp.json()["access_token"]
 
-        # Step 2: List history
-        headers = {"Authorization": f"Bearer {token}"}
-        hist_resp = await client.get("/history", headers=headers)
+            # Step 2: List history
+            headers = {"Authorization": f"Bearer {token}"}
+            hist_resp = await client.get("/history", headers=headers)
 
     assert hist_resp.status_code == 200, f"History list failed: {hist_resp.text}"
     assert isinstance(hist_resp.json(), list), "History should return a list"
@@ -123,27 +131,33 @@ async def test_full_e2e_login_jobs_history(login_payload):
     except ImportError:
         from backend.ares_api import app  # type: ignore
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 1. Health check (no auth needed)
-        health_resp = await client.get("/health")
-        assert health_resp.status_code == 200, "Health endpoint failed"
+    async with app.router.lifespan_context(app):
+        from httpx import ASGITransport
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
+            # 1. Health check (requires auth now)
+            health_resp = await client.get("/health")
+            assert health_resp.status_code == 401, "Expected 401 for unauthenticated health"
 
-        # 2. Login
-        login_resp = await client.post("/auth/login", json=login_payload)
-        assert login_resp.status_code == 200
-        token = login_resp.json()["access_token"]
-        headers = {"Authorization": f"Bearer {token}"}
+            # 2. Login
+            login_resp = await client.post("/auth/login", json=login_payload)
+            assert login_resp.status_code == 200
+            token = login_resp.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
 
-        # 3. List jobs
-        jobs_resp = await client.get("/jobs", headers=headers)
-        assert jobs_resp.status_code == 200
+            # 2b. Health check (authenticated)
+            health_resp = await client.get("/health", headers=headers)
+            assert health_resp.status_code == 200, "Health endpoint failed with auth"
 
-        # 4. List history
-        hist_resp = await client.get("/history", headers=headers)
-        assert hist_resp.status_code == 200
-        assert isinstance(hist_resp.json(), list)
+            # 3. List jobs
+            jobs_resp = await client.get("/jobs", headers=headers)
+            assert jobs_resp.status_code == 200
 
-        # 5. Metrics
-        metrics_resp = await client.get("/metrics", headers=headers)
-        assert metrics_resp.status_code == 200
+            # 4. List history
+            hist_resp = await client.get("/history", headers=headers)
+            assert hist_resp.status_code == 200
+            assert isinstance(hist_resp.json(), list)
+
+            # 5. Metrics
+            metrics_resp = await client.get("/metrics", headers=headers)
+            assert metrics_resp.status_code == 200

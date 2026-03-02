@@ -477,80 +477,27 @@ class ChainOrchestrator:
                     "link_technique": link.technique,
                 }
 
-        return await self._simulate_link_result(link=link, finding=finding)
+        return await self._fallback_link_result(link=link, finding=finding)
 
-    async def _simulate_link_result(
+    async def _fallback_link_result(
         self,
         link: ChainLink,
         finding: VulnerabilityFinding
     ) -> Dict:
-        """Fallback simulation used when no concrete adapter can run."""
-        import random
-        success = random.random() < link.confidence
-        output = ""
-        evidence = ""
-        if success:
-            if link.technique == "enum":
-                output = "Database enumeration successful. Schema items found: users, admin, config"
-                evidence = "SELECT version(), database(), user()"
-            elif link.technique == "escalate":
-                output = "OS command execution successful"
-                evidence = "uid=33(www-data) gid=33(www-data) groups=33(www-data)"
-            elif link.technique == "exfil":
-                output = "Data exfiltration initiated"
-                evidence = "Exfiltrated /etc/passwd (1.2KB)"
-                # Integrate with post-exfiltration policy: may perform actual exfil if allowed
-                try:
-                    from exfiltration.post_exfiltration_policy import get_post_exfiltration_policy, PolicyMode
-                    policy = get_post_exfiltration_policy()
-                    target = finding.endpoint or "unknown"
-                    size_bytes = max(1024, len(evidence.encode("utf-8")) if evidence else 1024)
-                    allowed = policy.can_exfiltrate(target=target, size_bytes=size_bytes)
-                    policy.record_exfiltration(target=target, size_bytes=size_bytes, method="simulated_exfil", reason="chain_exfil_attempt")
+        """Fallback path when no concrete adapter can run.
 
-                    if policy.mode == PolicyMode.ALLOWED and allowed:
-                        # Perform a conservative simulated exfil: write evidence to history file
-                        import os
-                        fname = os.path.join(
-                            os.path.dirname(__file__),
-                            "..",
-                            "history",
-                            f"exfil_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.txt",
-                        )
-                        try:
-                            os.makedirs(os.path.dirname(fname), exist_ok=True)
-                            with open(fname, "w", encoding="utf-8") as fh:
-                                fh.write(output + "\n" + evidence)
-                            logger.info(f"[EXFIL] Wrote exfil payload to {fname}")
-                        except Exception as e:
-                            logger.error(f"[EXFIL] Failed to write exfil payload: {e}")
-                except Exception:
-                    # If policy module missing or fails, continue but log
-                    logger.exception("Post-exfiltration policy check failed")
-            elif link.technique == "credential_discovery":
-                output = "Credentials discovered in configuration files"
-                evidence = "admin:SecurePass123 found in web.config"
-            elif link.technique == "pivot":
-                # Integration with Lateral Movement Module
-                try:
-                    from backend.offensiva.lateral_movement import LateralOrchestrator
-                    orchestrator = LateralOrchestrator()
-                    # Determine subnet from current context or use default
-                    subnet = "192.168.1.0/24" 
-                    hosts = await orchestrator.explore_network(subnet)
-                    count = len(hosts)
-                    success = count > 0
-                    output = f"Lateral movement complete. Discovered {count} hosts."
-                    evidence = "\n".join([f"{h.ip} ports={h.open_ports}" for h in hosts])
-                except Exception as e:
-                    success = False
-                    output = f"Lateral movement failed: {e}"
-                    evidence = str(e)
-        
+        Runtime policy: never fabricate successful offensive outcomes.
+        """
+        logger.warning(
+            "Chain link skipped (no adapter): technique=%s endpoint=%s parameter=%s",
+            link.technique,
+            finding.endpoint,
+            finding.parameter,
+        )
         return {
-            "success": success,
-            "output": output,
-            "evidence": evidence,
+            "success": False,
+            "output": "",
+            "evidence": "No concrete adapter available; fallback chain execution is disabled.",
             "link_technique": link.technique,
         }
     

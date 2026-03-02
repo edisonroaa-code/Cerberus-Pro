@@ -117,7 +117,7 @@ class RedTeamReporter:
 
         # Executive Summary
         md += "## 1. Executive Summary\n\n"
-        md += "Cerberus conducted a simulated adversarial emulation to identify weaknesses in the target infrastructure.\n"
+        md += "Cerberus conducted a controlled adversarial emulation to identify weaknesses in the target infrastructure.\n"
         md += f"A total of **{len(self.findings)}** unique vulnerabilities were identified.\n\n"
         md += f"### Overall Risk Score: {score:.1f}/10\n\n"
 

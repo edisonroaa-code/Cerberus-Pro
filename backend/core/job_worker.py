@@ -37,7 +37,7 @@ async def job_worker_loop(
     run_job_by_kind_fn: Callable[[str, str, str, dict], Awaitable[None]],
     heartbeat_loop_fn: Callable[[str], Awaitable[None]],
 ) -> None:
-    while True:
+    while not getattr(state, "kill_switch_active", False):
         scan_id = await queue_pop_fn(2)
         if not scan_id:
             continue

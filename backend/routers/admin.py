@@ -20,12 +20,12 @@ router = APIRouter()
 
 
 def _get_state():
-    from ares_api import state
+    from ..ares_api import state
     return state
 
 
 async def _audit(user_id, action, resource_type, resource_id=None, status_val="success"):
-    from ares_api import audit_log
+    from ..ares_api import audit_log
     await audit_log(
         user_id=user_id, action=action, resource_type=resource_type,
         resource_id=resource_id, status=status_val,

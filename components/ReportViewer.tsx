@@ -17,7 +17,7 @@ interface ReportViewerProps {
     handleTerminalCommand: (cmd: string) => void;
     setLogs: (logs: LogEntry[]) => void;
     activeFingerprint: string | null;
-    mockFingerprints: FingerprintData[];
+    fingerprints: FingerprintData[];
     profileRules: any;
     targetProfile: string;
 }
@@ -31,7 +31,7 @@ export const ReportViewer: React.FC<ReportViewerProps> = ({
     handleTerminalCommand,
     setLogs,
     activeFingerprint,
-    mockFingerprints,
+    fingerprints,
     profileRules,
     targetProfile,
 }) => {
@@ -95,7 +95,7 @@ export const ReportViewer: React.FC<ReportViewerProps> = ({
                             <div className="h-full overflow-hidden">
                                 <Suspense fallback={<div className="h-full rounded border border-cyber-700 bg-cyber-900/60 animate-pulse" />}>
                                     <FingerprintView
-                                        fingerprints={mockFingerprints.filter(fp => {
+                                        fingerprints={fingerprints.filter(fp => {
                                             const rules = profileRules[targetProfile];
                                             return rules && fp.tags.some((tag: string) => rules.tags.includes(tag));
                                         })}

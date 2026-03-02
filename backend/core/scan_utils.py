@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 from fastapi import HTTPException
 
 OMNI_ALLOWED_MODES = {"web", "graphql", "direct_db", "ws", "mqtt", "grpc"}
-OMNI_ALLOWED_VECTORS = {"UNION", "ERROR", "TIME", "BOOLEAN", "STACKED", "INLINE", "AIIE"}
+OMNI_ALLOWED_VECTORS = {"UNION", "ERROR", "TIME", "BOOLEAN", "STACKED", "INLINE", "AIIE", "NOSQL", "SSTI"}
 AUTOPILOT_MAX_PHASE = 4
 
 
@@ -208,11 +208,21 @@ def _normalize_unified_scan_cfg(
     if mode in ("web", "graphql"):
         raw_vectors = unified_cfg.get("vectors")
         if isinstance(raw_vectors, list) and raw_vectors:
-            vectors = [str(v).upper() for v in raw_vectors if str(v).upper() in allowed_vectors]
+            # Keep user-provided vectors (uppercased) so validation can return explicit
+            # "Lista de vectores inválida" instead of silently dropping unknown values.
+            vectors = [str(v).upper() for v in raw_vectors if str(v).strip()]
         else:
             vectors = _default_unified_vectors_from_cfg(cfg, allowed_vectors=allowed_vectors)
         unified_cfg["vectors"] = vectors
         unified_cfg["maxParallel"] = int(unified_cfg.get("maxParallel") or 4)
+        selected = {str(v).upper() for v in vectors}
+        # Backward-compatible aliasing: selecting vector names enables the new engines.
+        if "AIIE" in selected:
+            unified_cfg["aiie"] = True
+        if "NOSQL" in selected:
+            unified_cfg["noSql"] = True
+        if "SSTI" in selected:
+            unified_cfg["ssti"] = True
         if mode == "graphql" and not unified_cfg.get("graphqlQuery"):
             unified_cfg["graphqlQuery"] = "query { __typename }"
     else:
@@ -241,4 +251,3 @@ def _safe_history_path(history_dir: str, filename: str) -> str:
     if not candidate.startswith(base + os.sep):
         raise HTTPException(status_code=400, detail="Ruta de historial inválida")
     return candidate
-

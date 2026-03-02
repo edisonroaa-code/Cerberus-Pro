@@ -45,7 +45,12 @@ export const checkBackendReady = async ({
 
   const probe = (async () => {
     let ok = false;
-    if (await isReachable(`${base}/health`, timeoutMs)) {
+    // Prefer unauthenticated probes to avoid noisy 401s in browser console.
+    if (await isReachable(`${base}/health/liveness`, timeoutMs)) {
+      ok = true;
+    } else if (await isReachable(`${base}/health/readiness`, timeoutMs)) {
+      ok = true;
+    } else if (await isReachable(`${base}/health`, timeoutMs)) {
       ok = true;
     } else if (await isReachable(`${base}/status`, timeoutMs)) {
       ok = true;

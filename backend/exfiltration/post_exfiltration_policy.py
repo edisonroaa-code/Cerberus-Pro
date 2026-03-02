@@ -43,7 +43,7 @@ class PostExfiltrationPolicy:
         if size_bytes > self.max_bytes_per_scan:
             return False
         if self.mode == PolicyMode.AUDIT_ONLY:
-            return True  # allow internal simulation but disallow external export
+            return True  # allow internal transfer but disallow external export
         # ALLOWED: check allowed targets
         if "*" in self.allowed_targets:
             return True

@@ -18,6 +18,7 @@ const LEVEL_SEVERITY: Record<LogEntry['level'], Severity> = {
   SUCCESS: 'SUCCESS',
   WARN: 'WARN',
   ERROR: 'ERROR',
+  CRITICAL: 'ERROR',
 };
 
 function maxSeverity(a: Severity, b: Severity): Severity {

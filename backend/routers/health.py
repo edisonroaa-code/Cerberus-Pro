@@ -9,6 +9,8 @@ POST /health/self-heal - Ejecutar auto-reparación
 from fastapi import APIRouter, HTTPException
 from backend.core.health import get_health_status
 from backend.core.verdict_engine import VerdictEngine
+from auth_security import get_current_user
+from fastapi import Depends
 from typing import Dict, Any
 import logging
 
@@ -17,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("")
-async def full_health_check() -> Dict[str, Any]:
+async def full_health_check(current_user=Depends(get_current_user)) -> Dict[str, Any]:
     """
     Endpoint de salud completa.
     Retorna: estado del worker, cola, jobs running/queued, self-heal status
@@ -27,7 +29,7 @@ async def full_health_check() -> Dict[str, Any]:
 
 
 @router.get("/scheduler")
-async def scheduler_health() -> Dict[str, Any]:
+async def scheduler_health(current_user=Depends(get_current_user)) -> Dict[str, Any]:
     """
     Estado del scheduler: queue length, running jobs, capacity
     """
@@ -36,7 +38,7 @@ async def scheduler_health() -> Dict[str, Any]:
 
 
 @router.get("/queue")
-async def queue_status() -> Dict[str, Any]:
+async def queue_status(current_user=Depends(get_current_user)) -> Dict[str, Any]:
     """
     Detalles de la cola: jobs queued, running, completed
     """
@@ -45,7 +47,7 @@ async def queue_status() -> Dict[str, Any]:
 
 
 @router.get("/job/{job_id}")
-async def job_status(job_id: str) -> Dict[str, Any]:
+async def job_status(job_id: str, current_user=Depends(get_current_user)) -> Dict[str, Any]:
     """
     Estado de un job específico
     """
@@ -59,7 +61,7 @@ async def job_status(job_id: str) -> Dict[str, Any]:
 
 
 @router.post("/self-heal")
-async def execute_self_heal() -> Dict[str, Any]:
+async def execute_self_heal(current_user=Depends(get_current_user)) -> Dict[str, Any]:
     """
     Ejecuta auto-reparación del sistema:
     - Recupera jobs huérfanos

@@ -1,12 +1,11 @@
 """Benchmark runner for vector prioritization.
 
 This tool supports two modes:
-- baseline: iterate vectors in input order and detect first matching vuln from a labeled dataset
+- baseline: iterate vectors in input order
 - ml: score vectors with `backend/ml/vector_predictor.py` and prioritize high-score vectors
 
-It is intentionally safe: by default it runs a simulated detection using the
-`sample_training_data.json` labels. For real tests, pass `--scan-cmd` which will
-be formatted with `{endpoint}`, `{method}`, `{param_name}` and executed per-vector.
+Detection is operational-only: you must provide `--scan-cmd`, formatted with
+`{endpoint}`, `{method}`, `{param_name}` and executed per-vector.
 """
 from __future__ import annotations
 
@@ -29,21 +28,15 @@ def load_labels(path: str) -> List[Dict[str, Any]]:
         return json.load(f)
 
 
-def simulated_scan_detects(vector: Dict[str, Any], labeled: List[Dict[str, Any]]) -> bool:
-    # simple matching: if endpoint + param_name + sample_value matches a labeled vuln
-    for item in labeled:
-        v = item.get("vector", {})
-        if v.get("endpoint") == vector.get("endpoint") and v.get("param_name") == vector.get("param_name"):
-            return bool(item.get("vuln_found"))
-    return False
-
-
 def run_scan_cmd(cmd_template: str, vector: Dict[str, Any], timeout: Optional[int] = 30) -> subprocess.CompletedProcess:
     cmd = cmd_template.format(**{k: str(v) for k, v in vector.items()})
     return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
 
 
 def benchmark(vectors_file: str, labels_file: str, use_ml: bool = False, model_path: Optional[str] = None, scan_cmd: Optional[str] = None) -> Dict[str, Any]:
+    if not scan_cmd:
+        raise ValueError("scan_cmd is required for operational benchmark runs")
+
     vectors = load_vectors(vectors_file)
     labels = load_labels(labels_file)
 
@@ -65,15 +58,12 @@ def benchmark(vectors_file: str, labels_file: str, use_ml: bool = False, model_p
         vec = vectors[idx]
         steps += 1
         detected = False
-        if scan_cmd:
-            try:
-                res = run_scan_cmd(scan_cmd, vec)
-                # user can define detection heuristics via exit code or stdout parsing
-                detected = res.returncode == 0 and ("VULN" in (res.stdout or "") or "vuln" in (res.stdout or "").lower())
-            except Exception:
-                detected = False
-        else:
-            detected = simulated_scan_detects(vec, labels)
+        try:
+            res = run_scan_cmd(scan_cmd, vec)
+            # user can define detection heuristics via exit code or stdout parsing
+            detected = res.returncode == 0 and ("VULN" in (res.stdout or "") or "vuln" in (res.stdout or "").lower())
+        except Exception:
+            detected = False
 
         if detected:
             first_found_index = steps
@@ -95,7 +85,7 @@ def _cli():
     p.add_argument("--labels", required=True)
     p.add_argument("--mode", choices=["baseline", "ml"], default="baseline")
     p.add_argument("--model", help="Path to trained model (required for ml mode)")
-    p.add_argument("--scan-cmd", help="Optional command template to run per vector")
+    p.add_argument("--scan-cmd", required=True, help="Command template to run per vector")
     args = p.parse_args()
 
     if args.mode == "ml" and not args.model:

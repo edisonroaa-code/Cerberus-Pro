@@ -261,7 +261,7 @@ class TestEvidenceExfilOrchestrator(unittest.IsolatedAsyncioTestCase):
     async def test_payload_preparation(self):
         orchestrator = EvidenceExfilOrchestrator()
         data = b"hello world"
-        payload = orchestrator._prepare_payload(data, "test.txt")
+        payload = await orchestrator._prepare_payload(data, "test.txt")
 
         # Reverse process to verify
         decompressed = gzip.decompress(payload)

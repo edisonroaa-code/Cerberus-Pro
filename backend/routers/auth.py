@@ -13,9 +13,9 @@ from fastapi.responses import JSONResponse
 
 from auth_security import (
     JWTManager, PasswordManager, MFAManager,
-    User, UserCreate, LoginRequest, TokenResponse, Role,
+    User, UserCreate, UserResponse, LoginRequest, TokenResponse, Role,
     SecurityConfig, get_current_user, JWTPayload, TokenType,
-    MFASetup, ResetPasswordRequest,
+    MFASetup, ResetPasswordRequest, require_role
 )
 from services.email_service import EmailService
 
@@ -25,18 +25,18 @@ router = APIRouter()
 
 def _get_state():
     """Lazy import to avoid circular dependency with ares_api."""
-    from ares_api import state
+    from ..ares_api import state
     return state
 
 
 def _get_env():
-    from ares_api import ENVIRONMENT
+    from ..ares_api import ENVIRONMENT
     return ENVIRONMENT
 
 
 async def _audit(user_id, action, resource_type="auth", resource_id=None, status_val="success", error_message=None):
     """Proxy to ares_api.audit_log."""
-    from ares_api import audit_log
+    from ..ares_api import audit_log
     await audit_log(
         user_id=user_id,
         action=action,
@@ -51,8 +51,11 @@ async def _audit(user_id, action, resource_type="auth", resource_id=None, status
 # AUTHENTICATION ENDPOINTS
 # ============================================================================
 
-@router.post("/register", response_model=User)
-async def register(user_data: UserCreate):
+@router.post("/register", response_model=UserResponse)
+async def register(
+    user_data: UserCreate, 
+    current_user: JWTPayload = Depends(require_role(Role.ADMIN, Role.SUPER_ADMIN))
+):
     """Register new user (admin only in production)"""
     state = _get_state()
 
@@ -193,10 +196,18 @@ async def refresh_access_token(request: Request):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token missing")
 
     payload = JWTManager.verify_token(refresh_token)
-    if str(payload.token_type) != TokenType.REFRESH.value:
+    if payload.token_type != TokenType.REFRESH:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token type")
     if payload.jti in state.revoked_tokens:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token revoked")
+
+    # P7-04: Compartmentalization - Agents cannot refresh tokens
+    from auth_security import Role
+    if payload.role == Role.AGENT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operational Security Policy: Agent tokens are non-renewable."
+        )
 
     user = state.users.get(payload.sub)
     if not user or not user.is_active:

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Mock vulnerable target server with intermittent 502/503 blocks.
-Simulates WAF behavior: allows initial probe, then blocks some requests mid-stream.
+Local vulnerable target server with intermittent 502/503 blocks.
+Deterministic WAF-like behavior: allows initial probe, then blocks some requests mid-stream.
 """
 import asyncio
 import json
@@ -18,7 +18,7 @@ request_count = 0
 vulnerable_param = "id"
 db_name = "target_db"
 current_user = "www-data"
-block_after_request = 7  # Block after 7 requests to simulate mid-stream detection
+block_after_request = 7  # Block after 7 requests to emulate mid-stream detection
 
 
 @app.get("/")
@@ -30,9 +30,9 @@ async def root():
 @app.get("/test")
 async def test_endpoint(request: Request, id: Optional[str] = Query(None)):
     """
-    Vulnerable endpoint that simulates SQLi detection and intermittent blocking.
-    - First few requests: return mock vulnerable responses
-    - After request N: simulate WAF block (502/503)
+    Vulnerable endpoint with intermittent blocking behavior.
+    - First few requests: return vulnerable responses
+    - After request N: emulate WAF block (502/503)
     - Respond to extraction queries (--current-db, --dbs) with data
     """
     global request_count
@@ -55,18 +55,18 @@ async def test_endpoint(request: Request, id: Optional[str] = Query(None)):
         "param_id": str(id)[:50] if id else None,
     }
     
-    # Simulate intermittent 502/503 after N requests
+    # Emulate intermittent 502/503 after N requests
     if request_count > block_after_request and request_count % 3 == 0:
-        log_entry["response"] = "502_simulated_block"
+        log_entry["response"] = "502_block"
         log_entry["reason"] = "WAF_ACTIVE_BLOCKING"
         print(f"[{request_count:3d}] BLOCK 502: {user_agent[:40]:40} | Cookie: {bool(cookie_header)} | {id}")
         return JSONResponse(
             {"error": "Bad Gateway", "detail": "Request blocked by WAF"},
             status_code=502,
-            headers={"X-WAF": "SIM_ACTIVE", "X-Block-Reason": "injection_payload_detected"}
+            headers={"X-WAF": "ACTIVE", "X-Block-Reason": "injection_payload_detected"}
         )
     
-    # Simulate 503 occasionally
+    # Emulate 503 occasionally
     if request_count > block_after_request + 2 and request_count % 5 == 1:
         log_entry["response"] = "503_service_unavailable"
         print(f"[{request_count:3d}] BLOCK 503: {user_agent[:40]:40} | Cookie: {bool(cookie_header)} | {id}")
@@ -75,7 +75,7 @@ async def test_endpoint(request: Request, id: Optional[str] = Query(None)):
             status_code=503,
         )
     
-    # Normal response: simulate SQLi vulnerability
+    # Normal response: vulnerable SQLi behavior
     if id:
         # Check for extraction queries (--current-db, --dbs, etc.)
         if "version" in id.lower() or "@@version" in id.lower():
@@ -123,8 +123,8 @@ async def test_endpoint(request: Request, id: Optional[str] = Query(None)):
 
 
 if __name__ == "__main__":
-    print("[DEMO_SERVER] Starting vulnerable test server on http://127.0.0.1:8888")
-    print(f"[DEMO_SERVER] Will simulate WAF blocks after request #{block_after_request}")
-    print("[DEMO_SERVER] Accessible at http://127.0.0.1:8888/test?id=1")
+    print("[TEST_SERVER] Starting vulnerable test server on http://127.0.0.1:8888")
+    print(f"[TEST_SERVER] WAF-like blocks start after request #{block_after_request}")
+    print("[TEST_SERVER] Accessible at http://127.0.0.1:8888/test?id=1")
     print()
     uvicorn.run(app, host="127.0.0.1", port=8888, log_level="critical")

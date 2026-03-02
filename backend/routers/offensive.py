@@ -5,6 +5,7 @@ Handles: Metasploit, Exfiltration, Payload Generation, Privilege Escalation.
 
 import base64
 import logging
+import ipaddress
 from typing import Optional, Dict
 
 from backend.core.api_contracts import (
@@ -100,8 +101,43 @@ async def auto_privilege_escalation(session_id: int, current_user: User = Depend
 
 @router.post("/session/{session_id}/lateral")
 async def lateral_movement(session_id: int, payload: LateralMovementRequest, current_user: User = Depends(get_current_user)):
-    """Attempt lateral movement (stub for now)"""
-    return {"status": "not_implemented", "message": "Lateral movement module coming in Phase 3"}
+    """Attempt lateral movement using subnet discovery + service enumeration."""
+    from backend.offensiva.lateral_movement import LateralOrchestrator
+
+    target_host = payload.target_host.strip()
+    if not target_host:
+        raise HTTPException(status_code=400, detail="target_host is required")
+
+    try:
+        ip_obj = ipaddress.ip_address(target_host)
+        # Scan /24 neighborhood around the target host by default.
+        subnet = str(ipaddress.ip_network(f"{ip_obj}/24", strict=False))
+    except ValueError:
+        # If target_host is not an IP, scan that exact host.
+        subnet = target_host
+
+    orchestrator = LateralOrchestrator()
+    hosts = await orchestrator.explore_network(subnet)
+
+    normalized = [
+        {
+            "ip": h.ip,
+            "hostname": h.hostname,
+            "open_ports": h.open_ports,
+            "services": h.services,
+            "vulnerabilities": h.vulnerabilities,
+        }
+        for h in hosts
+    ]
+    return {
+        "status": "completed",
+        "session_id": session_id,
+        "target_host": target_host,
+        "scan_subnet": subnet,
+        "method": payload.method,
+        "hosts_discovered": len(normalized),
+        "hosts": normalized,
+    }
 
 
 # ============================================================================

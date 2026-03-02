@@ -1,11 +1,11 @@
 /**
  * ARCH-001: Extracted from App.tsx
- * Attack profile constants, mock fingerprints, and default scan configuration.
+ * Attack profile constants, fingerprint catalog, and default scan configuration.
  */
 import { AttackProfile, FingerprintData, TargetConfig } from '../types';
 
-// Expanded Mock Fingerprints with Profile-Specific Tags
-export const MOCK_FINGERPRINTS: FingerprintData[] = [
+// Fingerprint catalog with profile-specific tags.
+export const FINGERPRINT_CATALOG: FingerprintData[] = [
     // Corporate / Desktop
     { name: 'Chrome 120 (Win10)', score: 98, userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', ja3Hash: 'e7d705a3286e19...', httpVersion: '3', tags: ['Escritorio', 'Corp', 'Sigilo'] },
     { name: 'Edge 119 (Enterprise)', score: 92, userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0', ja3Hash: 'a0b9c8d7...', httpVersion: '3', tags: ['Escritorio', 'Corp'] },

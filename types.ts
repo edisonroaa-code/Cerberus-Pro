@@ -20,7 +20,7 @@ export interface LogEntry {
   ts?: number;
   component: 'ORQUESTADOR' | 'PROXY' | 'SQLMAP' | 'CERBERUS_PRO' | 'SENSOR_WAF' | 'SISTEMA';
   // Note: 'SQLMAP' is kept for compatibility but prefer 'CERBERUS_PRO' in new logs
-  level: 'INFO' | 'WARN' | 'ERROR' | 'SUCCESS';
+  level: 'INFO' | 'WARN' | 'ERROR' | 'SUCCESS' | 'CRITICAL';
   message: string;
   metadata?: Record<string, any>;
 }
@@ -58,6 +58,12 @@ export interface TargetConfig {
   useSmartEvasion: boolean;
   sqlMap: SqlMapConfig;
   autoPilot: boolean;
+  pivoting?: {
+    tor: boolean;
+    proxy: string;
+  };
+  rotateProxy?: boolean;
+  proxies?: string[];
 }
 
 export interface FingerprintData {
@@ -99,4 +105,20 @@ export interface CerberusJob {
   created_at?: string;
   error_message?: string;
   [key: string]: unknown; // For raw JSON viewing
+}
+
+export interface CerberusLoot {
+  id: string; // Filename
+  scan_id: string;
+  target: string;
+  timestamp: string;
+  technique_used: string;
+  extracted_data: {
+    current_user?: string;
+    database_name?: string;
+    hostname?: string;
+    privileges?: string[];
+    tables_preview?: string[];
+    [key: string]: any;
+  };
 }

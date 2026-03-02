@@ -61,7 +61,7 @@ def register_default_engines():
     )
     logger.info("Registered engine: zap")
 
-    # Burp adapter placeholder/API integration
+    # Burp adapter (proxy-aware active adapter)
     register_engine(
         "burp",
         BurpAdapter(

@@ -55,6 +55,15 @@ class WAFResponseAnalyzer:
             self.history.pop(0)
         return signal
 
+    def record_interaction(self, status_code: int, latency_ms: int, headers: Dict[str, str] = None, body: str = "", is_blocked: bool = False):
+        """Alias for record_response with signature used by the orchestrator."""
+        return self.record_response(
+            status_code=status_code,
+            headers=headers or {},
+            body_snippet=body or ("WAF Block" if is_blocked else ""),
+            elapsed_ms=latency_ms
+        )
+
     def get_block_rate(self) -> float:
         """Calculate the percentage of recent requests that were blocked."""
         if not self.history:

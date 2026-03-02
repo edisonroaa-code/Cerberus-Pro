@@ -19,7 +19,7 @@ import { checkBackendReady } from './services/backendHealth';
 import { formatBlockerForDisplay, normalizeCoverageBlockers, normalizeReport, safeStringify, type ReportState } from './services/reportNormalization';
 import { useAuth, LoginPage, UserMenu } from './components/AuthContext';
 import { computeUnifiedRiskLevel } from './utils/unifiedRisk';
-import { MOCK_FINGERPRINTS, PROFILE_RULES, DEFAULT_CONFIG, ACTIVE_JOB_STATUSES, TERMINAL_JOB_STATUSES } from './config/scanDefaults';
+import { FINGERPRINT_CATALOG, PROFILE_RULES, DEFAULT_CONFIG, ACTIVE_JOB_STATUSES, TERMINAL_JOB_STATUSES } from './config/scanDefaults';
 import { UnifiedUiConfig, UnifiedStatusMeta, UnifiedCapabilities, DEFAULT_UNIFIED_CONFIG, UNIFIED_PRESETS, type UnifiedMode, type UnifiedVector, type DirectDbEngine } from './config/unifiedConfig';
 import { AGENT_SCRIPT } from './config/agentScript';
 
@@ -151,6 +151,10 @@ const App: React.FC = () => {
     const [jobs, setJobs] = useState<any[]>([]);
     const [selectedJob, setSelectedJob] = useState<any | null>(null);
 
+    // Loot DB State
+    const [lootLoading, setLootLoading] = useState(false);
+    const [loots, setLoots] = useState<any[]>([]);
+
     // Report states
     const [showReport, setShowReport] = useState(false);
     const [reportData, setReportData] = useState<ReportState>({
@@ -221,8 +225,17 @@ const App: React.FC = () => {
     const [unifiedStatus, setUnifiedStatus] = useState<{ running: boolean; meta?: UnifiedStatusMeta }>({ running: false });
     const [unifiedCapabilities, setUnifiedCapabilities] = useState<UnifiedCapabilities>({
         modes: ['web', 'graphql', 'direct_db', 'ws', 'mqtt', 'grpc'],
-        vectors: ['UNION', 'ERROR', 'TIME', 'BOOLEAN', 'STACKED', 'INLINE', 'AIIE'],
+        vectors: ['UNION', 'ERROR', 'TIME', 'BOOLEAN', 'STACKED', 'INLINE', 'AIIE', 'NOSQL', 'SSTI'],
         limits: { max_parallel_min: 1, max_parallel_max: 8 }
+    });
+    const [engineHealth, setEngineHealth] = useState<{
+        connected: number;
+        total: number;
+        items: Array<{ id: string; connected: boolean; status: string }>;
+    }>({
+        connected: 0,
+        total: 0,
+        items: []
     });
 
     // Background job execution (backend worker queue)
@@ -244,6 +257,11 @@ const App: React.FC = () => {
 
     const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [aiStats, setAiStats] = useState({
+        payloadsMutated: 0,
+        honeypotsDetected: 0,
+        stegoBytes: 0
+    });
     const geminiApiConfigured = useMemo(() => {
         const key = `${process.env.GEMINI_API_KEY || process.env.API_KEY || ''}`.trim();
         return key.length > 0;
@@ -499,6 +517,24 @@ const App: React.FC = () => {
         }
     }, [apiFetch, addLog]);
 
+    const fetchLoots = useCallback(async () => {
+        setLootLoading(true);
+        try {
+            const response = await apiFetch(`${API_BASE_URL}/api/loot`);
+            if (response.ok) {
+                const data = await response.json();
+                setLoots(Array.isArray(data) ? data : []);
+            } else {
+                addLog('SISTEMA', 'ERROR', `Error al cargar Loot DB: HTTP ${response.status}`);
+            }
+        } catch (e: any) {
+            console.error('Error fetching loot:', e);
+            addLog('SISTEMA', 'ERROR', `Error de red al cargar Botín: ${e.message}`);
+        } finally {
+            setLootLoading(false);
+        }
+    }, [apiFetch, addLog]);
+
     const loadJobDetail = useCallback(async (scanId: string) => {
         try {
             const response = await apiFetch(`${API_BASE_URL}/jobs/${encodeURIComponent(scanId)}`);
@@ -595,9 +631,13 @@ const App: React.FC = () => {
     useEffect(() => {
         if (activeTab !== 'JOBS') return;
         void fetchJobs();
-        const t = setInterval(fetchJobs, 3000);
+        void fetchLoots();
+        const t = setInterval(() => {
+            void fetchJobs();
+            void fetchLoots();
+        }, 5000);
         return () => clearInterval(t);
-    }, [activeTab, fetchJobs]);
+    }, [activeTab, fetchJobs, fetchLoots]);
 
     useEffect(() => {
         localStorage.setItem('cerberus_config_v2', JSON.stringify(targetConfig));
@@ -660,11 +700,64 @@ const App: React.FC = () => {
         };
         void fetchCapabilities();
     }, [addLog, apiFetch, authState.isAuthenticated]);
+    useEffect(() => {
+        if (!authState.isAuthenticated) return;
+        let cancelled = false;
+
+        const fetchEngineHealth = async () => {
+            try {
+                const ready = await checkBackendReady({ apiBaseUrl: API_BASE_URL });
+                if (!ready) return;
+
+                const listResponse = await apiFetch(`${API_BASE_URL}/engines/`);
+                if (!listResponse.ok) return;
+                const listData = await listResponse.json();
+                const engineIds = Array.isArray(listData.engines)
+                    ? listData.engines.map((x: unknown) => String(x)).filter(Boolean)
+                    : [];
+
+                const checks = await Promise.all(engineIds.map(async (engineId: string) => {
+                    try {
+                        const statusResponse = await apiFetch(`${API_BASE_URL}/engines/${encodeURIComponent(engineId)}/status`);
+                        if (!statusResponse.ok) {
+                            return { id: engineId, connected: false, status: `http_${statusResponse.status}` };
+                        }
+                        const payload = await statusResponse.json();
+                        const rawStatus = String(payload?.status || 'ready').toLowerCase();
+                        const connected = !['offline', 'disconnected', 'failed', 'error'].includes(rawStatus);
+                        return { id: engineId, connected, status: rawStatus };
+                    } catch {
+                        return { id: engineId, connected: false, status: 'offline' };
+                    }
+                }));
+
+                if (cancelled) return;
+                const connected = checks.filter((x) => x.connected).length;
+                setEngineHealth({
+                    connected,
+                    total: checks.length,
+                    items: checks
+                });
+            } catch (e: any) {
+                if (cancelled) return;
+                addLog('SISTEMA', 'WARN', `No se pudo sincronizar estado de motores: ${e?.message || 'error de red'}`);
+            }
+        };
+
+        void fetchEngineHealth();
+        const timer = setInterval(() => {
+            void fetchEngineHealth();
+        }, 15000);
+        return () => {
+            cancelled = true;
+            clearInterval(timer);
+        };
+    }, [addLog, apiFetch, authState.isAuthenticated]);
 
     // Update Active Fingerprint when Profile Changes
     useEffect(() => {
         const rules = PROFILE_RULES[targetConfig.profile];
-        const validFps = MOCK_FINGERPRINTS.filter(fp => fp.tags.some(tag => rules.tags.includes(tag)));
+        const validFps = FINGERPRINT_CATALOG.filter(fp => fp.tags.some(tag => rules.tags.includes(tag)));
 
         if (validFps.length > 0) {
             setActiveFingerprint(validFps[0].name);
@@ -749,6 +842,26 @@ const App: React.FC = () => {
                         setReportData(normalizeReportPayload(data));
                         setShowReport(true);
                         setIsRunning(false);
+                    } else if (data.type === 'ai_telemetry') {
+                        // Real-time AI stream for the Gemini Cortex Panel
+                        const msgStr = data.msg || '';
+                        setAiAnalysis(prev => (prev ? prev + '\n' : '') + msgStr);
+
+                        // Parse stats
+                        setAiStats(prev => {
+                            const newStats = { ...prev };
+                            if (msgStr.includes('Generando secuencias de ataque extendidas')) {
+                                newStats.payloadsMutated += 1;
+                            }
+                            if (msgStr.includes('Threat Intel] Proxy descartado')) {
+                                newStats.honeypotsDetected += 1;
+                            }
+                            const stegoMatch = msgStr.match(/Ocultando (\d+) bytes/);
+                            if (stegoMatch) {
+                                newStats.stegoBytes += parseInt(stegoMatch[1], 10);
+                            }
+                            return newStats;
+                        });
                     }
                 } catch (e) {
                     console.error('[WebSocket] Parse error:', e);
@@ -882,7 +995,7 @@ const App: React.FC = () => {
         try {
             if (errorLog) {
                 const gemini = await loadGeminiService();
-                const result = await gemini.analyzeWafResponse(errorLog, targetConfig.profile);
+                const result = await gemini.analyzeWafResponse(errorLog, targetConfig.profile, authState.accessToken);
                 setAiAnalysis(result);
             } else {
                 setAiAnalysis("Sin datos críticos para analizar.");
@@ -1103,7 +1216,7 @@ ${csv}
                         { id: 'DASHBOARD', icon: Activity, label: 'Panel Principal' },
                         { id: 'CAMPAIGN', icon: Database, label: 'Control SQLMap' },
                         { id: 'ANALYSIS', icon: BrainCircuit, label: 'IA Cortex' },
-                        { id: 'JOBS', icon: Server, label: 'Jobs' },
+                        { id: 'JOBS', icon: Server, label: 'Exploitation DB' },
                         { id: 'HISTORY', icon: Clock, label: 'Historial' },
                     ].map((item) => (
                         <button
@@ -1143,7 +1256,7 @@ ${csv}
                         {activeTab === 'DASHBOARD' ? 'VISTA TÁCTICA' :
                             activeTab === 'CAMPAIGN' ? 'CONFIGURACIÓN DE INYECCIÓN' :
                                 activeTab === 'HISTORY' ? 'HISTORIAL DE AUDITORÍA' :
-                                    activeTab === 'JOBS' ? 'JOBS (COLA / HISTORIAL)' : 'ANÁLISIS NEURONAL'}
+                                    activeTab === 'JOBS' ? 'EXPLOITATION DATABASE (LOOT BOARD)' : 'ANÁLISIS NEURONAL'}
                     </h1>
                     <div className="flex items-center gap-4">
                         <UserMenu />
@@ -1182,7 +1295,7 @@ ${csv}
                             handleTerminalCommand={handleTerminalCommand}
                             setLogs={setLogs}
                             activeFingerprint={activeFingerprint}
-                            mockFingerprints={MOCK_FINGERPRINTS}
+                            fingerprints={FINGERPRINT_CATALOG}
                             profileRules={PROFILE_RULES}
                             targetProfile={targetConfig.profile}
                         />
@@ -1205,6 +1318,7 @@ ${csv}
                                         unifiedRisk={unifiedRisk}
                                         unifiedCapabilities={unifiedCapabilities}
                                         unifiedStatus={unifiedStatus}
+                                        engineHealth={engineHealth}
                                         sendUnifiedStartCommand={sendUnifiedStartCommand}
                                         sendUnifiedStopCommand={sendUnifiedStopCommand}
                                         getCommandPreview={getCommandPreview}
@@ -1221,7 +1335,7 @@ ${csv}
                                             handleTerminalCommand={handleTerminalCommand}
                                             setLogs={setLogs}
                                             activeFingerprint={activeFingerprint}
-                                            mockFingerprints={MOCK_FINGERPRINTS}
+                                            fingerprints={FINGERPRINT_CATALOG}
                                             profileRules={PROFILE_RULES}
                                             targetProfile={targetConfig.profile}
                                         />
@@ -1260,6 +1374,21 @@ ${csv}
                                     </button>
                                 </div>
 
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                                    <div className="bg-cyber-900/50 p-4 border border-cyber-700 rounded-lg flex flex-col justify-center items-center">
+                                        <div className="text-xs text-cyber-300 uppercase tracking-widest mb-1">Payloads Mutados</div>
+                                        <div className="text-3xl font-mono text-white">{aiStats.payloadsMutated}</div>
+                                    </div>
+                                    <div className="bg-cyber-900/50 p-4 border border-cyber-700 rounded-lg flex flex-col justify-center items-center">
+                                        <div className="text-xs text-red-300 uppercase tracking-widest mb-1">Honeypots (Quemados)</div>
+                                        <div className="text-3xl font-mono text-white">{aiStats.honeypotsDetected}</div>
+                                    </div>
+                                    <div className="bg-cyber-900/50 p-4 border border-cyber-700 rounded-lg flex flex-col justify-center items-center">
+                                        <div className="text-xs text-fuchsia-300 uppercase tracking-widest mb-1">Bytes Stego-Camuflados</div>
+                                        <div className="text-3xl font-mono text-white">{aiStats.stegoBytes}</div>
+                                    </div>
+                                </div>
+
                                 <div className="bg-black/30 backdrop-blur-md rounded-lg border border-white/5 shadow-inner p-4 min-h-[300px] max-h-[500px] overflow-y-auto font-mono text-sm custom-scrollbar">
                                     {aiAnalysis ? (
                                         <pre className="whitespace-pre-wrap text-emerald-100">{aiAnalysis}</pre>
@@ -1277,11 +1406,21 @@ ${csv}
                     {activeTab === 'JOBS' && (
                         <JobsPanel
                             jobs={jobs}
+                            loots={loots}
                             fetchJobs={fetchJobs}
+                            fetchLoots={fetchLoots}
                             stopJob={stopJob}
                             retryJob={retryJob}
                             selectedJob={selectedJob}
                             loadJobDetail={loadJobDetail}
+                            deleteLoot={async (filename) => {
+                                try {
+                                    await apiFetch(`${API_BASE_URL}/api/loot/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+                                    void fetchLoots();
+                                } catch (e) {
+                                    addLog('SISTEMA', 'ERROR', `Error borrando loot: ${e}`);
+                                }
+                            }}
                         />
                     )}
 
@@ -1337,6 +1476,3 @@ ${csv}
 };
 
 export default App;
-
-
-

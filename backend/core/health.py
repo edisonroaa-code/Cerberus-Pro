@@ -5,7 +5,7 @@ Refleja: worker activo, cola viva, jobs running/queued, self-heal.
 
 from typing import Dict, Any
 from datetime import datetime, timezone
-from backend.core.scheduler_enhanced import get_scheduler
+from backend.core.scheduler_enhanced import get_scheduler, JobStatus
 import logging
 
 logger = logging.getLogger(__name__)
@@ -29,8 +29,8 @@ class HealthStatus:
             "status": self._compute_overall_status(scheduler_status),
             
             "scheduler": {
-                "worker_active": len(scheduler_status["running_jobs"]) > 0,
-                "queue_alive": len(scheduler_status["queued_jobs"]) > 0 or len(scheduler_status["running_jobs"]) > 0,
+                "worker_active": scheduler_status["running_jobs"] > 0,
+                "queue_alive": scheduler_status["queued_jobs"] > 0 or scheduler_status["running_jobs"] > 0,
                 "jobs": {
                     "queued": scheduler_status["queued_jobs"],
                     "running": scheduler_status["running_jobs"],
@@ -52,9 +52,9 @@ class HealthStatus:
     
     def _compute_overall_status(self, scheduler_status: Dict[str, Any]) -> str:
         """Determina estado general."""
-        if len(scheduler_status["running_jobs"]) == 0 and len(scheduler_status["queued_jobs"]) == 0:
+        if scheduler_status["running_jobs"] == 0 and scheduler_status["queued_jobs"] == 0:
             return "IDLE"
-        elif len(scheduler_status["running_jobs"]) > 0:
+        elif scheduler_status["running_jobs"] > 0:
             return "ACTIVE"
         else:
             return "QUEUED"
@@ -107,32 +107,89 @@ class HealthStatus:
     async def _recover_orphans(self) -> Dict[str, Any]:
         """Recupera jobs sin heartbeat."""
         logger.info("Recovering orphan jobs...")
-        
-        # Aquí se ejecutaría lógica de recuperación
-        # Por ahora: stub
+        recovered = 0
+        exhausted = 0
+
+        running_items = list(getattr(self.scheduler, "running", {}).items())
+        for job_id, job in running_items:
+            try:
+                alive = job.is_alive(getattr(self.scheduler, "heartbeat_timeout_ms", 30000))
+            except Exception:
+                alive = False
+            if alive:
+                continue
+
+            self.scheduler.running.pop(job_id, None)
+            job.status = JobStatus.ORPHAN
+            if job.retry_count < job.max_retries:
+                job.retry_count += 1
+                job.status = JobStatus.RETRYING
+                self.scheduler.queue.append(job_id)
+                recovered += 1
+            else:
+                job.status = JobStatus.FAILED
+                exhausted += 1
+
         return {
-            "jobs_recovered": 0,
-            "action": "recovery_completed"
+            "jobs_recovered": recovered,
+            "jobs_exhausted": exhausted,
+            "action": "recovery_completed",
         }
     
     async def _clear_deadlocks(self) -> Dict[str, Any]:
         """Limpia deadlocks."""
         logger.info("Clearing deadlocks...")
-        
-        # Stub
+        removed_unknown = 0
+        removed_duplicates = 0
+
+        jobs = getattr(self.scheduler, "jobs", {})
+        queue = getattr(self.scheduler, "queue", [])
+        running = getattr(self.scheduler, "running", {})
+
+        seen = set()
+        new_queue = []
+        for job_id in queue:
+            if job_id not in jobs:
+                removed_unknown += 1
+                continue
+            if job_id in seen:
+                removed_duplicates += 1
+                continue
+            seen.add(job_id)
+            new_queue.append(job_id)
+        self.scheduler.queue = new_queue
+
+        for job_id in list(running.keys()):
+            if job_id not in jobs:
+                running.pop(job_id, None)
+                removed_unknown += 1
+
         return {
-            "deadlocks_cleared": 0,
-            "action": "deadlock_check_completed"
+            "deadlocks_cleared": removed_duplicates,
+            "unknown_entries_removed": removed_unknown,
+            "action": "deadlock_check_completed",
         }
     
     async def _rebalance_queue(self) -> Dict[str, Any]:
         """Rebalancea la cola."""
         logger.info("Rebalancing queue...")
-        
-        # Stub
+        queue = getattr(self.scheduler, "queue", [])
+        jobs = getattr(self.scheduler, "jobs", {})
+        before = list(queue)
+
+        def _queue_key(job_id: str):
+            job = jobs.get(job_id)
+            if job is None:
+                return (99, datetime.max.replace(tzinfo=timezone.utc))
+            return (int(getattr(job, "retry_count", 0)), getattr(job, "created_at", datetime.now(timezone.utc)))
+
+        self.scheduler.queue = sorted(queue, key=_queue_key)
+        changed = before != self.scheduler.queue
+
         return {
-            "jobs_rebalanced": 0,
-            "action": "rebalance_completed"
+            "jobs_rebalanced": len(self.scheduler.queue) if changed else 0,
+            "queue_changed": changed,
+            "action": "rebalance_completed",
         }
 
 

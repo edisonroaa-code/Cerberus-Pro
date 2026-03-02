@@ -102,6 +102,53 @@ class PayloadMutationEngine:
 
         return variants
 
+    async def generate_smart_variants(self, context: Dict[str, Any], error_trace: str, target_count: int = 5) -> List[str]:
+        """
+        [P5-A] Async Deep AI execution. Attempts to use Cortex AI to generate smart polyglots.
+        Falls back to heuristic mutations on failure/timeout.
+        """
+        import logging
+        from backend.core.events import CerberusBroadcaster
+        
+        logger = logging.getLogger("cerberus.mutation")
+        
+        try:
+            from backend.core.cortex_ai import generate_smart_payloads
+            
+            await CerberusBroadcaster.broadcast_ws_message("CERBERUS_PRO", "ai_telemetry", 
+                f"🧠 [Cortex AI] Analizando traza de error {context.get('dbms')} en {context.get('url')}...")
+                
+            logger.info("Firing Cortex AI Gen-Payload Engine...")
+            smart_payloads = await generate_smart_payloads(context, error_trace, target_count)
+            
+            if smart_payloads:
+                await CerberusBroadcaster.broadcast_ws_message("CERBERUS_PRO", "ai_telemetry", 
+                    f"⚡ [Cortex AI] ¡Éxito! {len(smart_payloads)} Smart Polyglots generados.")
+                    
+                # Add to generated variants to track
+                for p in smart_payloads:
+                    self.generated_variants.add(p)
+                    self.mutation_history.append({
+                        "variant": p,
+                        "strategy": "generative_ai",
+                        "iteration": 0,
+                    })
+                    await CerberusBroadcaster.broadcast_ws_message("CERBERUS_PRO", "ai_telemetry", f"  > Inyectando: {p}")
+                    
+                return smart_payloads
+            else:
+                logger.warning("Cortex AI failed to return payloads. Falling back to heuristic mutations.")
+                await CerberusBroadcaster.broadcast_ws_message("CERBERUS_PRO", "ai_telemetry", 
+                    "⚠️ [Cortex AI] Timeout/Fallback. Regresando a mutación heurística local.")
+        except Exception as e:
+            logger.warning(f"Error invoking Generative AI Payload Engine: {e}. Fallback to heuristics.")
+            await CerberusBroadcaster.broadcast_ws_message("CERBERUS_PRO", "ai_telemetry", 
+                f"❌ [Cortex AI] Error de Invocación: {e}. Usando heurísticas.")
+            
+        # Fallback to local blind heuristic variant generation
+        return self.generate_variants(target_count)
+
+
     def _select_mutation_strategy(self, iteration: int) -> str:
         """Select mutation strategy based on iteration"""
         strategies = [

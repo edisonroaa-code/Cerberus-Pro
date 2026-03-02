@@ -30,27 +30,27 @@ router = APIRouter()
 
 
 def _get_state():
-    from ares_api import state
+    from ..ares_api import state
     return state
 
 
 async def _audit(user_id, action, resource_type, resource_id=None, status_val="success"):
-    from ares_api import audit_log
+    from ..ares_api import audit_log
     await audit_log(user_id=user_id, action=action, resource_type=resource_type,
                     resource_id=resource_id, status=status_val)
 
 
 def _get_c2_server():
-    from ares_api import C2Server
+    from ..ares_api import C2Server
     # We import the module-level c2_server instance
-    import ares_api
+    from .. import ares_api
     if not hasattr(ares_api, '_c2_server_instance'):
         ares_api._c2_server_instance = C2Server()
     return ares_api._c2_server_instance
 
 
 async def _broadcast_log(component, level, msg, metadata=None):
-    from ares_api import broadcast_log
+    from ..ares_api import broadcast_log
     await broadcast_log(component, level, msg, metadata)
 
 
@@ -166,7 +166,7 @@ async def c2_register_agent(agent_info: AgentInfoPayload, current_user: JWTPaylo
     c2 = _get_c2_server()
     agent_id = await c2.register_agent(agent_info.model_dump())
     logger.info(f"Agent registered by {current_user.username}: {agent_id}")
-    return {"agent_id": agent_id, "encryption_key": c2.encryption_key.decode()}
+    return {"agent_id": agent_id, "status": "registered"}
 
 
 @router.post("/beacon/{agent_id}")

@@ -1,6 +1,6 @@
 """Lightweight validator for SQLMap adapter command generation and synthesis.
 This script does NOT execute sqlmap; it builds the commands used by the orchestrator
-and demonstrates the `synthesize_structured_findings` output using a sample result.
+and validates the `synthesize_structured_findings` transformation using fixture-like input.
 """
 import json
 from urllib.parse import urlparse
@@ -12,7 +12,7 @@ TARGET = "http://example.com/test?id=1"
 PYTHON = sys.executable or "python"
 SQLMAP_PATH = "sqlmap.py"
 
-def demo_build():
+def validate_command_build():
     vectors = ["UNION", "ERROR", "TIME", "BOOLEAN"]
     polymorphic = PolymorphicEvasionEngine("general_strong")
     sql_config = {"threads": 3, "level": 5, "risk": 3, "tamper": "space2comment,between"}
@@ -32,7 +32,7 @@ def demo_build():
         out.append({"vector": vec, "command": cmd})
     print(json.dumps(out, indent=2, ensure_ascii=False))
 
-def demo_synthesize():
+def validate_synthesis():
     sample_results = [
         {
             "vector": "UNION",
@@ -48,5 +48,5 @@ def demo_synthesize():
 
 if __name__ == "__main__":
     print("Building SQLMap vector commands (no execution):")
-    demo_build()
-    demo_synthesize()
+    validate_command_build()
+    validate_synthesis()

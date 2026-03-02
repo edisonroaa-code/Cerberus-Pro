@@ -33,6 +33,12 @@ def get_encryption_key() -> bytes:
         except ValueError as e:
             raise ValueError(f"Invalid ENCRYPTION_KEY: {e}") from e
 
+    # Missing key — check environment
+    if os.environ.get("ENVIRONMENT") == "production":
+        import sys
+        print("CRITICAL [P0-06]: ENCRYPTION_KEY IS NOT SET IN PRODUCTION! Halting startup to prevent data loss.", file=sys.stderr)
+        sys.exit(1)
+
     # Dev fallback: generate ephemeral key
     key = os.urandom(_KEY_SIZE)
     logger.warning(
