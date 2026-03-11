@@ -636,7 +636,69 @@ INSTRUCCIONES:
     except Exception as e:
         logger.warning(f"Cortex semantic camouflage generation failed: {e}")
         return None
+        return None
 
+
+
+# ---------------------------------------------------------------------------
+# Jules Agent (Phase 1: Copilot/Natural Language Parser)
+# ---------------------------------------------------------------------------
+
+async def jules_parse_natural_language_command(command: str) -> Optional[Dict[str, Any]]:
+    """
+    Translates a natural language command into a structured Cerberus Pro job configuration.
+    Example: "Lanza un escaneo rápido a test.com usando solo Nmap"
+    """
+    client = _get_client()
+    if client is None:
+        logger.warning("Cortex AI disabled; Jules Copilot cannot parse natural language.")
+        return None
+
+    prompt = f"""Eres Jules, el agente copiloto avanzado de Cerberus Pro.
+Tu tarea es convertir la petición del usuario en una configuración JSON estructurada para iniciar un escaneo.
+
+PETICIÓN DEL USUARIO:
+"{command}"
+
+REGLAS DE EXTRACCIÓN:
+1. "target_url": Extrae cualquier URL, dominio o IP mencionada. Si no empieza con http:// o https://, asume http:// por defecto a menos que el contexto sugiera otra cosa. Si no hay URL, el valor debe ser "" (string vacío).
+2. "mode": Si hablan de web o url, es "web". Si mencionan red, IP, puertos o Nmap, es "nonweb".
+3. "engines": Si mencionan SQLMAP, NMAP, NUCLEI, RUSTSCAN, WP_SCAN, W3AF, OWASP_ZAP, añádelos a la lista de "vectors" (ej. ["SQLMAP"]). Si no mencionan ninguno o dicen "completo", devuelve ["SQLMAP"]. Si dicen "todos los motores", no intentes adivinarlos, usa el default ["SQLMAP"] del sistema o deja vacío si es nonweb.
+4. "profile": Determina la agresividad basada en palabras como "rápido" (fast), "fuerte/agresivo/exhaustivo" (deep), "sigiloso/stealth" (stealth). Por defecto es "standard".
+
+RESPONDE ÚNICAMENTE EN JSON VÁLIDO CON ESTA ESTRUCTURA (Y NINGÚN OTRO TEXTO):
+{{
+    "target_url": "http://ejemplo.com",
+    "mode": "web",
+    "vectors": ["SQLMAP"],
+    "profile": "standard",
+    "reasoning": "Breve explicación en español de tu interpretación."
+}}
+"""
+    try:
+        response_text = await _call_gemini(prompt, timeout=12.0)
+        if not response_text:
+            return None
+            
+        data = _extract_json(response_text)
+        if not data:
+            return None
+
+        # Clean up the output to match Cerberus Pro config structure
+        vecs = [str(v).strip().upper() for v in data.get("vectors", [])]
+        if not vecs and data.get("mode", "web") == "web":
+             vecs = ["SQLMAP"]
+             
+        return {
+            "target_url": str(data.get("target_url", "")).strip(),
+            "mode": str(data.get("mode", "web")).strip(),
+            "vectors": vecs,
+            "profile": str(data.get("profile", "standard")).strip(),
+            "reasoning": str(data.get("reasoning", "Parsed by Jules")),
+        }
+    except Exception as e:
+        logger.error(f"Jules Copilot parsing failed: {e}")
+        return None
 
 
 # ---------------------------------------------------------------------------

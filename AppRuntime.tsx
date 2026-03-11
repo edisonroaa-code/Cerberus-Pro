@@ -11,6 +11,7 @@ import { ReportViewer } from './components/ReportViewer';
 
 import { HistoryPanel } from './components/HistoryPanel';
 import { CampaignPanel } from './components/CampaignPanel';
+import { JulesCopilot } from './components/JulesCopilot';
 
 import { LogEntry, SystemMetrics, AttackProfile, TargetConfig, ScanHistoryItem } from './types';
 import { generatePdfReport } from './services/reportService';
@@ -1469,6 +1470,11 @@ ${csv}
                     </div>
                 </div>
             )}
+            
+            <JulesCopilot onJobCreated={(id) => { 
+                setActiveTab('JOBS'); 
+                fetchJobs(); 
+            }} />
         </div>
     );
 };

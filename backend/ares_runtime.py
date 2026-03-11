@@ -1124,6 +1124,10 @@ app.include_router(admin_router, prefix="/admin", tags=["admin"])
 # API Keys share /auth prefix
 app.include_router(admin_router, prefix="/auth", tags=["api-keys"], include_in_schema=False)
 
+# Jules Agent Router (Copilot)
+from backend.routers.jules_router import router as jules_router
+app.include_router(jules_router, prefix="/jules", tags=["jules_agent"])
+
 # [AUTH ENDPOINTS EXTRACTED TO routers/auth.py]
 
 # [USER MANAGEMENT + API KEY ENDPOINTS EXTRACTED TO routers/admin.py]
