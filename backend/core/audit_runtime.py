@@ -15,8 +15,8 @@ class AuditRuntimeDeps:
     state: Any
     logger: Any
     audit_log_cls: Any
-    append_audit_chain_fn: Any
-    verify_audit_chain_fn: Any
+    append_audit_chain_fn: Callable[[Any], Awaitable[None]]
+    verify_audit_chain_fn: Callable[[], Awaitable[dict]]
 
 
 async def audit_log(
@@ -48,7 +48,7 @@ async def audit_log(
     )
 
     deps.state.audit_logs.append(log_entry)
-    deps.append_audit_chain_fn(log_entry)
+    await deps.append_audit_chain_fn(log_entry)
     deps.logger.info("Audit: %s - %s by %s", action, resource_type, user_id)
 
 
@@ -56,6 +56,6 @@ def list_audit_logs(*, deps: AuditRuntimeDeps, limit: int = 100) -> List[Dict[st
     return [log.dict() for log in deps.state.audit_logs[-limit:]]
 
 
-def verify_audit_chain(*, deps: AuditRuntimeDeps) -> dict:
-    return deps.verify_audit_chain_fn()
+async def verify_audit_chain(*, deps: AuditRuntimeDeps) -> dict:
+    return await deps.verify_audit_chain_fn()
 

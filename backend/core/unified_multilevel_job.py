@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from backend.core.waf_feedback_loop import WAFResponseAnalyzer, AdaptiveStrategySelector
+from backend.core.smart_cache import get_shared_smart_cache
+from backend.core.events import get_scan_event_coordinator, release_scan_event_coordinator
 from backend.core.cortex_ai import (
     analyze_waf_signal, suggest_escalation,
     correlate_findings_ai, generate_forensic_narrative,
@@ -35,9 +37,9 @@ class UnifiedMultilevelJobDeps:
     orchestrator_cls: Any
     orchestrator_phase: Any
     broadcast_log_fn: Callable[[str, str, str, Optional[dict]], Awaitable[Any]]
-    job_update_fn: Callable[..., None]
+    job_update_fn: Callable[..., Awaitable[None]]
     job_now_fn: Callable[[], str]
-    job_get_fn: Callable[[str], Optional[dict]]
+    job_get_fn: Callable[[str], Awaitable[Optional[dict]]]
     history_dir: str
 
 
@@ -64,7 +66,7 @@ async def run_unified_multilevel_job(
     source_kind = str(kind or "").strip().lower()
     kind_norm = deps.normalize_job_kind_fn(kind)
     if kind_norm != deps.canonical_job_kind:
-        deps.job_update_fn(scan_id, status="failed", finished_at=deps.job_now_fn(), error=f"unknown job kind: {kind}")
+        await deps.job_update_fn(scan_id, status="failed", finished_at=deps.job_now_fn(), error=f"unknown job kind: {kind}")
         return
 
     normalized_cfg = deps.normalize_unified_job_cfg_fn(source_kind, cfg)
@@ -77,12 +79,12 @@ async def run_unified_multilevel_job(
             phase=int(normalized_cfg.get("autoPilotPhase") or 1),
         )
 
-    deps.job_update_fn(scan_id, config_json=json.dumps(normalized_cfg, ensure_ascii=False, sort_keys=True))
+    await deps.job_update_fn(scan_id, config_json=json.dumps(normalized_cfg, ensure_ascii=False, sort_keys=True))
 
     try:
         deps.validate_unified_target_policy_fn(mode, normalized_cfg, user_id)
     except Exception as exc:
-        deps.job_update_fn(scan_id, status="failed", finished_at=deps.job_now_fn(), error=str(exc))
+        await deps.job_update_fn(scan_id, status="failed", finished_at=deps.job_now_fn(), error=str(exc))
         return
 
     target_ref = str(normalized_cfg.get("url") or mode or "unknown")
@@ -114,13 +116,21 @@ async def run_unified_multilevel_job(
     deps.state.omni_meta[user_id]["orchestrator"] = "unified_multilevel_v1"
 
     orchestrator = deps.orchestrator_cls(scan_id=scan_id, target_url=target_ref)
+    coordinator = get_scan_event_coordinator(scan_id)
+    await coordinator.mark(
+        "job_started",
+        {"kind": kind_norm, "mode": mode, "target": target_ref},
+    )
     execution_payload: Dict[str, Any] = {}
     escalation_summary: Dict[str, Any] = {}
     ai_decisions: List[Dict[str, Any]] = []
 
     # WAF feedback loop + Cortex AI telemetry
     waf_analyzer = WAFResponseAnalyzer(window_size=30)
-    strategy_selector = AdaptiveStrategySelector(waf_analyzer)
+    cache_db_path = os.environ.get("CERBERUS_SMART_CACHE_DB", "backend/data/smart_cache.sqlite3")
+    smart_cache = get_shared_smart_cache(db_path=cache_db_path)
+    strategy_selector = AdaptiveStrategySelector(waf_analyzer, smart_cache=smart_cache)
+    strategy_selector.set_runtime_context(target_ref=target_ref, mode=mode, orchestrator="unified_multilevel_job")
 
     async def _phase_preflight(_):
         return True
@@ -130,13 +140,17 @@ async def run_unified_multilevel_job(
 
     async def _phase_execution(_):
         nonlocal execution_payload
-        execution_payload = (await deps.run_omni_surface_scan_fn(user_id, normalized_cfg)) or {}
-        
-    async def _phase_execution(_):
-        nonlocal execution_payload
         
         # Initial scan run
-        execution_payload = (await deps.run_omni_surface_scan_fn(user_id, normalized_cfg)) or {}
+        phase_cfg = dict(normalized_cfg or {})
+        phase_cfg["_defer_terminal_finalize"] = True
+        execution_payload = (await deps.run_omni_surface_scan_fn(user_id, phase_cfg)) or {}
+        await coordinator.mark(
+            "vectors_completed",
+            {
+                "results_count": len(execution_payload.get("data", []) if isinstance(execution_payload, dict) else []),
+            },
+        )
         
         # ── Cortex AI: Tactical Adaptation Loop ────────────────────────
         # Allows the AI to "order" a reconfiguration if the first pass is blocked or ineffective
@@ -186,6 +200,14 @@ async def run_unified_multilevel_job(
                     "decision": decision.__dict__,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
+                await coordinator.mark(
+                    "ai_decision_ready",
+                    {
+                        "action": decision.action,
+                        "confidence": float(decision.confidence),
+                        "attempt": attempt + 1,
+                    },
+                )
                 
                 if decision.action != "retry" and decision.confidence > 0.6:
                     deps.logger.info(f"🧠 ORDEN DE IA RECIBIDA: {decision.action.upper()} - {decision.reasoning}")
@@ -205,7 +227,9 @@ async def run_unified_multilevel_job(
                     
                     # Log mutation
                     deps.logger.info(f"🧠 Mutación aplicada por IA. Re-ejecutando con órdenes nuevas...")
-                    execution_payload = (await deps.run_omni_surface_scan_fn(user_id, normalized_cfg)) or {}
+                    retry_cfg = dict(normalized_cfg or {})
+                    retry_cfg["_defer_terminal_finalize"] = True
+                    execution_payload = (await deps.run_omni_surface_scan_fn(user_id, retry_cfg)) or {}
                     # Continue loop to see if 2nd pass worked
                 else:
                     deps.logger.info(f"🧠 Cortex AI: Manteniendo táctica actual ({decision.reasoning})")
@@ -214,6 +238,21 @@ async def run_unified_multilevel_job(
                 break # Not blocked, no need for AI intervention
                 
         # ── End Cortex AI ────────────────────────────────────────────
+        final_findings = execution_payload.get("data", []) if isinstance(execution_payload, dict) else []
+        final_block_rate = waf_analyzer.get_block_rate()
+        feedback_success = isinstance(final_findings, list) and len(final_findings) > 0 and final_block_rate < 0.5
+        strategy_selector.update_strategy_feedback(success=feedback_success)
+        purged = strategy_selector.purge_obsolete_records()
+        await coordinator.mark(
+            "smart_cache_updated",
+            {
+                "success_feedback": bool(feedback_success),
+                "purged": int(purged),
+                "block_rate": float(final_block_rate),
+            },
+        )
+        if purged > 0:
+            deps.logger.info(f"SmartCache purgó {purged} estrategias obsoletas")
         return True
 
     async def _phase_escalation(_):
@@ -503,19 +542,25 @@ async def run_unified_multilevel_job(
         await orchestrator.execute_phase(deps.orchestrator_phase.ESCALATION, _phase_escalation, orchestrator.context)
         await orchestrator.execute_phase(deps.orchestrator_phase.CORRELATION, _phase_correlation, orchestrator.context)
         await orchestrator.execute_phase(deps.orchestrator_phase.VERDICT, _phase_verdict, orchestrator.context)
+        await coordinator.mark("verdict_completed", {"scan_id": scan_id})
 
-        job = deps.job_get_fn(scan_id) or {}
+        job = await deps.job_get_fn(scan_id) or {}
         if job.get("status") == "running":
             try:
                 findings = execution_payload.get("data", []) if isinstance(execution_payload, dict) else []
                 is_vulnerable = any(f.get("vulnerable") for f in findings if isinstance(f, dict))
                 verdict = "VULNERABLE" if is_vulnerable else "NO_VULNERABLE"
 
+                # G-01: Privacy Guard - Anonimizar información del operador
+                final_history_cfg = dict(normalized_cfg or {})
+                if "user_id" in final_history_cfg:
+                    final_history_cfg["user_id"] = "[ANONYMIZED_OPERATOR]"
+                
                 history_data = {
                     "scan_id": scan_id,
                     "target": target_ref,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "config": normalized_cfg,
+                    "config": final_history_cfg,
                     "verdict": verdict,
                     "message": "Escaneo Unificado Omnisurface completado (V4).",
                     "data": findings,
@@ -534,61 +579,147 @@ async def run_unified_multilevel_job(
 
                 if is_vulnerable:
                     # ── Fase 16: Automated Extraction & Loot Board ──
+
                     try:
+
                         from backend.ares_runtime import LOOT_DIR
+
                         if not os.path.exists(LOOT_DIR):
+
                             os.makedirs(LOOT_DIR, exist_ok=True)
+
                             
-                        # Search for real data exfiltrated by engines (specifically AIIE)
+
+                        # Search for real data exfiltrated by engines (specifically AIIE or raw strings)
+
                         all_loot_fragments = []
+
                         for f in findings:
-                            if isinstance(f, dict) and f.get("loot"):
-                                all_loot_fragments.append(f["loot"])
+
+                            if isinstance(f, dict):
+
+                                if f.get("loot"):
+
+                                    all_loot_fragments.append(f["loot"])
+
+                                elif f.get("evidence"):
+
+                                    ev = f.get("evidence")
+
+                                    if isinstance(ev, list):
+
+                                        extracted = [str(x) for x in ev if "retrieved:" in str(x).lower()]
+
+                                        if extracted:
+
+                                            all_loot_fragments.append({"raw_extraction": extracted})
+
                         
+
                         if all_loot_fragments:
+
                             deps.logger.info(f"[*] Post-Exploitation AI: Persistiendo datos exfiltrados...")
+
                             
-                            # Merge fragments (usually one from AIIE)
+
+                            first_vector = findings[0].get("vector", "UNKNOWN") if findings and isinstance(findings[0], dict) else "UNKNOWN"
+
                             final_loot_data = {
+
                                 "scan_id": scan_id,
+
                                 "target": target_ref,
+
                                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                                "technique_used": findings[0].get("vector", "UNKNOWN") if findings else "UNKNOWN",
+
+                                "technique_used": first_vector,
+
                                 "extracted_data": {}
+
                             }
+
                             
+
                             for fragment in all_loot_fragments:
-                                final_loot_data["extracted_data"].update(fragment)
+
+                                if isinstance(fragment, dict):
+
+                                    final_loot_data["extracted_data"].update(fragment)
+
+                                elif isinstance(fragment, list):
+
+                                    final_loot_data["extracted_data"].setdefault("raw", []).extend(fragment)
+
                             
+
                             loot_filename = f"loot_{secure_target}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
+
                             loot_filepath = os.path.join(LOOT_DIR, loot_filename)
+
                             
+
                             with open(loot_filepath, "w", encoding="utf-8") as f:
+
                                 json.dump(final_loot_data, f, indent=4, ensure_ascii=False)
+
                                 
+
                             deps.logger.info(f"[+] Loot real almacenado exitosamente en: {loot_filename}")
+
+                            await deps.broadcast_log_fn("ORQUESTADOR", "SUCCESS", f"Exfiltracion finalizada en: {loot_filename}", {"loot_file": loot_filename})
+
                         else:
+
                             deps.logger.info("[!] No se detectaron fragmentos de loot para persistir.")
+
                             
+
                     except Exception as loot_e:
+
                         deps.logger.error(f"Fallo en la persistencia de Loot Real: {loot_e}")
+
                     # ────────────────────────────────────────────────
+
+                os.makedirs(deps.history_dir, exist_ok=True)
+                with open(filepath, "w", encoding="utf-8") as history_file:
+                    json.dump(history_data, history_file, ensure_ascii=False, indent=2)
+                await coordinator.mark(
+                    "report_persisted",
+                    {
+                        "filename": filename,
+                        "findings": len(findings),
+                        "verdict": verdict,
+                    },
+                )
+                await deps.broadcast_log_fn(
+                    "ORQUESTADOR",
+                    "SUCCESS",
+                    f"Reporte final sincronizado: {filename}",
+                    {"scan_id": scan_id, "verdict": verdict},
+                )
                 
-                deps.job_update_fn(
+                await deps.job_update_fn(
                     scan_id,
                     status="completed",
                     finished_at=deps.job_now_fn(),
                     result_filename=filename,
                     vulnerable=1 if is_vulnerable else 0,
                 )
+                await coordinator.mark(
+                    "scan_completed",
+                    {"verdict": verdict, "result_filename": filename},
+                )
                 deps.logger.info(f"Historial JSON unificado generado exitosamente: {filename}")
             except Exception as hist_e:
                 deps.logger.error(f"Error generando historial JSON para frontend: {hist_e}")
-                deps.job_update_fn(scan_id, status="completed", finished_at=deps.job_now_fn())
+                await deps.job_update_fn(scan_id, status="completed", finished_at=deps.job_now_fn())
     except asyncio.CancelledError:
-        deps.job_update_fn(scan_id, status="stopped", finished_at=deps.job_now_fn(), error="stopped_by_user")
+        await coordinator.mark("scan_cancelled", {"reason": "stopped_by_user"})
+        await deps.job_update_fn(scan_id, status="stopped", finished_at=deps.job_now_fn(), error="stopped_by_user")
         raise
     except Exception as exc:
-        deps.job_update_fn(scan_id, status="failed", finished_at=deps.job_now_fn(), error=str(exc))
+        await coordinator.mark("scan_failed", {"error": str(exc)})
+        await deps.job_update_fn(scan_id, status="failed", finished_at=deps.job_now_fn(), error=str(exc))
     finally:
         deps.state.omni_meta.pop(user_id, None)
+        release_scan_event_coordinator(scan_id)

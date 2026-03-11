@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import difflib
 from typing import Dict, Any
@@ -18,9 +19,33 @@ class VectorBoolean(BaseVector):
         # Instanciar el evasor dinámico (Agresividad 3 por defecto para WAFs modernos)
         evader = PayloadEvader(context.get("aggressiveness", 3))
         
-        # Payloads booleanos mutados
-        payload_true = evader.evade(" AND 1=1")
-        payload_false = evader.evade(" AND 1=2")
+        # Payloads booleanos base o generados por IA
+        base_true = " AND 1=1"
+        base_false = " AND 1=2"
+        
+        # Integrate AI Smart Payloads if omni context allows
+        if context.get("force_ai_payloads", True):
+            try:
+                from backend.core.cortex_ai import generate_smart_payloads
+                logger.debug(f"[Boolean] Invocando Cortex AI (WAF: {context.get('waf_type', 'Auto')}) para generar paquete de ataques lógicos avanzados...")
+                ai_ctx = {
+                    "vector": "Boolean", 
+                    "url": self.target_url, 
+                    "parameter": "id",
+                    "waf_type": context.get("waf_type", "general_strong")
+                }
+                # Request 2 payloads: first should evaluate to true, second to false ideally, or just varied syntax
+                smart_p = await generate_smart_payloads(ai_ctx, "Generar inyecciones Boolean-Blind evadiendo WAF. 1 payload true, 1 false.", target_count=2)
+                if smart_p and len(smart_p) >= 2:
+                    base_true = smart_p[0]
+                    base_false = smart_p[1]
+                    logger.info(f"[*] Native Engine (AI): Paquete de ataques lógicos aplicado. True={base_true[:15]}..., False={base_false[:15]}...")
+            except Exception as e:
+                logger.warning(f"[Boolean] Paquete de ataques IA falló, usando heurística local. Error: {e}")
+
+        # Mutar los payloads con el evasor
+        payload_true = evader.evade(base_true)
+        payload_false = evader.evade(base_false)
         
         # 1. Petición Baseline
         base_resp = await self._safe_get(self.target_url)
@@ -28,19 +53,23 @@ class VectorBoolean(BaseVector):
             return {"status": "failed", "reason": "baseline_unreachable"}
             
         # 2. Petición True
-        url_true = f"{self.target_url}{payload_true}"
+        url_true = self.inject_url(payload_true)
         resp_true = await self._safe_get(url_true)
         
         # 3. Petición False
-        url_false = f"{self.target_url}{payload_false}"
+        url_false = self.inject_url(payload_false)
         resp_false = await self._safe_get(url_false)
         
         if not resp_true or not resp_false:
             return {"status": "failed", "reason": "blocked_or_timeout"}
 
-        # Análisis Matemático Heurístico Rápido (difflib)
-        ratio_true_base = difflib.SequenceMatcher(None, base_resp.text, resp_true.text).ratio()
-        ratio_false_base = difflib.SequenceMatcher(None, base_resp.text, resp_false.text).ratio()
+        # Análisis Matemático Heurístico Rápido (difflib) - Offloaded to thread to prevent loop blocking
+        ratio_true_base = await asyncio.to_thread(
+            lambda: difflib.SequenceMatcher(None, base_resp.text, resp_true.text).ratio()
+        )
+        ratio_false_base = await asyncio.to_thread(
+            lambda: difflib.SequenceMatcher(None, base_resp.text, resp_false.text).ratio()
+        )
         
         logger.debug(f"[Boolean] Ratio True: {ratio_true_base:.2f}, False: {ratio_false_base:.2f}")
 
@@ -58,6 +87,12 @@ class VectorBoolean(BaseVector):
         # Si la respuesta no es predecible, pero el FALSE cambió notablemente, es Zona Gris.
         # Fallback a Semántica de IA (Evita FP/FN en sitios dinámicos o tras proxies)
         if ratio_false_base < 0.95:
+            # Guard: if BOTH injected responses returned different HTTP status (e.g. 404),
+            # it's a path-not-found, not an injection differential. Skip AI Oracle.
+            if (resp_true.status_code != base_resp.status_code or
+                    resp_false.status_code != base_resp.status_code):
+                logger.debug("[Boolean] HTTP status mismatch (likely path injection). Skipping AI Oracle.")
+                return {"status": "not_vulnerable"}
             logger.info("[?] Diferencial Crítico (Zona Gris). Invocando a Cortex AI (Oráculo)...")
             from backend.core.cortex_ai import analyze_injection_response
             ai_verdict = await analyze_injection_response(

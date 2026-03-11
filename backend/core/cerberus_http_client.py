@@ -27,7 +27,7 @@ class CerberusHTTPClient:
     def _get_user_agent(self) -> str:
         if self.random_agent:
             # Lista básica rotativa (en el futuro Cortex AI puede sugerir agents específicos para camuflaje)
-            return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 CerberusEngine/5.0"
+            return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         return "CerberusPro/5.0 Engine"
 
     def _setup_client(self):

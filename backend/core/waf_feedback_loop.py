@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timezone
 
+from backend.core.smart_cache import SmartCache
+
 logger = logging.getLogger("cerberus.evasion.feedback")
 
 
@@ -24,7 +26,7 @@ class ResponseSignal:
 
     @property
     def is_block(self) -> bool:
-        return self.status_code in (403, 406, 501)
+        return self.status_code in (401, 403, 406, 407, 501, 503)
 
     @property
     def is_rate_limit(self) -> bool:
@@ -88,15 +90,44 @@ class WAFResponseAnalyzer:
 class AdaptiveStrategySelector:
     """Dynamically chooses evasion strategies based on analyzer feedback."""
     
-    def __init__(self, analyzer: WAFResponseAnalyzer):
+    def __init__(self, analyzer: WAFResponseAnalyzer, smart_cache: Optional[SmartCache] = None):
         self.analyzer = analyzer
         self.current_aggressiveness = 1  # 1 to 3
         self.browser_stealth_active = False
         self.jitter_multiplier = 1.0
+        self.smart_cache = smart_cache
+        self.runtime_context: Dict[str, Any] = {}
+        self._last_cache_context: Optional[Dict[str, Any]] = None
+        self._last_strategy: Optional[Dict[str, Any]] = None
+
+    def set_runtime_context(self, **context: Any) -> None:
+        self.runtime_context.update({k: v for k, v in context.items() if v is not None})
 
     def get_next_evasion_context(self) -> Dict[str, Any]:
         """Provides the recommended context/settings for the next request."""
         block_rate = self.analyzer.get_block_rate()
+        cache_context = self._build_cache_context(block_rate)
+
+        if self.smart_cache is not None:
+            cached = self.smart_cache.get_cached_strategy(cache_context)
+            if isinstance(cached, dict):
+                self.current_aggressiveness = int(cached.get("aggressiveness", self.current_aggressiveness))
+                self.browser_stealth_active = bool(cached.get("use_browser_stealth", self.browser_stealth_active))
+                self.jitter_multiplier = float(cached.get("jitter_multiplier", self.jitter_multiplier))
+                strategy = {
+                    "aggressiveness": self.current_aggressiveness,
+                    "use_browser_stealth": self.browser_stealth_active,
+                    "jitter_multiplier": self.jitter_multiplier,
+                    "recommended_technique": str(cached.get("recommended_technique") or self._select_technique(block_rate)),
+                }
+                self._last_cache_context = cache_context
+                self._last_strategy = strategy
+                return {
+                    **strategy,
+                    "block_rate": block_rate,
+                    "cache_hit": True,
+                    "cache_path": "fast_path",
+                }
         
         # Adjust aggressiveness based on blocks
         if block_rate > 0.3:
@@ -116,13 +147,42 @@ class AdaptiveStrategySelector:
         elif block_rate == 0.0 and self.jitter_multiplier > 1.0:
             self.jitter_multiplier = max(1.0, self.jitter_multiplier - 0.1)
 
-        return {
+        strategy = {
             "aggressiveness": self.current_aggressiveness,
             "use_browser_stealth": self.browser_stealth_active,
             "jitter_multiplier": self.jitter_multiplier,
-            "block_rate": block_rate,
-            "recommended_technique": self._select_technique(block_rate)
+            "recommended_technique": self._select_technique(block_rate),
         }
+        self._last_cache_context = cache_context
+        self._last_strategy = strategy
+        return {
+            **strategy,
+            "block_rate": block_rate,
+            "cache_hit": False,
+            "cache_path": "slow_path",
+        }
+
+    def update_strategy_feedback(
+        self,
+        success: bool,
+        context_data: Optional[Dict[str, Any]] = None,
+        strategy: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if self.smart_cache is None:
+            return
+        ctx = context_data or self._last_cache_context
+        strat = strategy or self._last_strategy
+        if not isinstance(ctx, dict) or not isinstance(strat, dict):
+            return
+        self.smart_cache.update_feedback(ctx, strat, success=success)
+
+    def purge_obsolete_records(self, min_attempts: int = 10, irrecoverable_success_rate: float = 0.2) -> int:
+        if self.smart_cache is None:
+            return 0
+        return self.smart_cache.purge_obsolete_records(
+            min_attempts=min_attempts,
+            irrecoverable_success_rate=irrecoverable_success_rate,
+        )
 
     def _select_technique(self, block_rate: float) -> str:
         if block_rate > 0.5:
@@ -130,3 +190,14 @@ class AdaptiveStrategySelector:
         elif block_rate > 0.2:
             return "unicode_homoglyphs"
         return "standard"
+
+    def _build_cache_context(self, block_rate: float) -> Dict[str, Any]:
+        avg_latency = self.analyzer.get_average_latency()
+        return {
+            "namespace": "waf_feedback_v1",
+            **self.runtime_context,
+            "block_rate_bucket": round(block_rate, 1),
+            "captcha_detected": self.analyzer.detect_captcha(),
+            "rate_limited": self.analyzer.detect_rate_limiting(),
+            "latency_bucket_ms": int(avg_latency / 100) * 100,
+        }

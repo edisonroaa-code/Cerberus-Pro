@@ -86,6 +86,8 @@ def _apply_autopilot_policy(cfg: dict, mode: str, phase: int = 1) -> dict:
             vectors.append("STACKED")
         if p >= 3 and "INLINE" not in vectors:
             vectors.append("INLINE")
+        if p >= 3 and "AIIE" not in vectors:
+            vectors.append("AIIE")
         omni_cfg["vectors"] = [v for v in vectors if v in OMNI_ALLOWED_VECTORS]
         omni_cfg["maxParallel"] = min(8, max(int(omni_cfg.get("maxParallel") or 2), 2 + p))
         if p >= 3:
@@ -119,6 +121,14 @@ def validate_omni_config(
     raw_cfg = dict(cfg or {})
     if "unified" not in raw_cfg and "omni" in raw_cfg:
         raise HTTPException(status_code=400, detail="Contrato legado detectado: usa config.unified (config.omni removido)")
+    # M-08 FIX: si no hay 'unified' ni 'omni', alertar explicitamente en lugar de proceder silenciosamente
+    if "unified" not in raw_cfg and "omni" not in raw_cfg:
+        mode_check = str(raw_cfg.get("mode") or "web").lower()
+        if mode_check in ("web", "graphql"):
+            raise HTTPException(
+                status_code=400,
+                detail="Configuración invalida: se requiere el campo 'unified' con vectors y maxParallel para modos web/graphql"
+            )
     cfg = _ensure_unified_cfg_aliases(raw_cfg)
     mode = (cfg.get("mode") or "web").lower()
     if mode not in allowed_modes:
@@ -193,7 +203,7 @@ def _default_unified_vectors_from_cfg(
         if key in technique and vec in allowed_vectors and vec not in vectors:
             vectors.append(vec)
     if not vectors:
-        vectors = ["UNION", "ERROR", "TIME", "BOOLEAN"]
+        vectors = ["UNION", "ERROR", "TIME", "BOOLEAN", "AIIE"]
     return vectors
 
 

@@ -28,6 +28,12 @@ export interface UnifiedStatusMeta {
     total_vectors?: number;
     last_error?: string | null;
     last_message?: string;
+    // Real-time tactical KPIs — populated by the backend scan engine in /scan/status
+    requests_per_second?: number;
+    evasion_rate?: number;
+    active_threads?: number;
+    waf_block_count?: number;
+    successful_injections?: number;
 }
 
 export interface UnifiedCapabilities {

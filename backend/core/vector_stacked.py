@@ -45,7 +45,7 @@ class VectorStacked(BaseVector):
 
         for p_raw in payloads:
             payload = evader.evade(p_raw)
-            test_url = f"{self.target_url}{payload}"
+            test_url = self.inject_url(payload)
             
             t0 = time.time()
             resp = await self._safe_get(test_url)

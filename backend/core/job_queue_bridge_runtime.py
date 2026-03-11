@@ -26,9 +26,9 @@ class JobQueueBridgeDeps:
     jobs_db_path: str
     pg_enabled_fn: Callable[[], bool]
     job_count_db_fn: Callable[..., int]
-    job_get_fn: Callable[[str], Optional[dict]]
+    job_get_fn: Callable[[str], Awaitable[Optional[dict]]]
     job_now_fn: Callable[[], str]
-    job_update_fn: Callable[..., None]
+    job_update_fn: Callable[..., Awaitable[None]]
     normalize_job_kind_fn: Callable[[Any], str]
     run_job_by_kind_fn: Callable[[str, str, str, dict], Awaitable[None]]
     heartbeat_loop_fn: Callable[[str], Awaitable[None]]
@@ -105,7 +105,7 @@ async def enqueue_queued_jobs(deps: JobQueueBridgeDeps) -> None:
 
     for scan_id in queued_ids:
         try:
-            job = deps.job_get_fn(str(scan_id)) or {}
+            job = await deps.job_get_fn(str(scan_id)) or {}
             await queue_enqueue(str(scan_id), priority=int(job.get("priority") or 0), deps=deps)
         except Exception:
             continue

@@ -347,10 +347,34 @@ class Orchestrator:
         return prev_execution is not None and prev_execution.status != "failed"
     
     def _check_exit_criteria(self, phase: OrchestratorPhase, context: OrchestratorPhaseContext) -> bool:
-        """Verifica exit criteria de una fase."""
-        # Lógica simplificada - mejorar según necesidad
-        return True
-    
+        """Verifica exit criteria reales de una fase antes de avanzar al siguiente estado."""
+        if phase == OrchestratorPhase.PREFLIGHT:
+            # Debe haber al menos un motor disponible para continuar
+            return bool(context.available_engines)
+
+        if phase == OrchestratorPhase.DISCOVERY:
+            # Debe haber encontrado al menos un endpoint y al menos un parámetro
+            return bool(context.discovered_endpoints) and bool(context.discovered_params)
+
+        if phase == OrchestratorPhase.EXECUTION:
+            # La clave 'findings' debe existir (puede ser lista vacía = no vulnerable)
+            return "findings" in context.execution_results
+
+        if phase == OrchestratorPhase.ESCALATION:
+            # Fase opcional: siempre se considera exitosa
+            return True
+
+        if phase == OrchestratorPhase.CORRELATION:
+            # Findings deben estar presentes (incluso correlacionados a lista vacía)
+            return "findings" in context.execution_results
+
+        if phase == OrchestratorPhase.VERDICT:
+            # Fase final: si llegamos aquí, el veredicto fue emitido
+            return True
+
+        return False
+
+
     def get_phase_status_report(self) -> Dict[str, Any]:
         """Reporte de estado de todas las fases."""
         report = {

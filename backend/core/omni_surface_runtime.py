@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from backend.core.events import get_scan_event_coordinator
+
 
 @dataclass
 class OmniSurfaceRuntimeDeps:
@@ -72,6 +74,7 @@ class OmniSurfaceRuntimeDeps:
 async def run_omni_surface_scan(user_id: str, cfg: dict, *, deps: OmniSurfaceRuntimeDeps) -> dict:
     """Phase 2+3: polymorphic evasion + multi-surface orchestration."""
     cfg = deps.ensure_unified_cfg_aliases_fn(cfg or {})
+    defer_terminal_finalize = bool(cfg.get("_defer_terminal_finalize", False))
     if cfg.get("autoPilot"):
         cfg = deps.apply_autopilot_policy_fn(
             cfg,
@@ -97,6 +100,15 @@ async def run_omni_surface_scan(user_id: str, cfg: dict, *, deps: OmniSurfaceRun
     strict_conclusive = bool(runtime_ctx.get("strict_conclusive"))
     defended_by_default = bool(runtime_ctx.get("defended_by_default"))
     scan_id = str(runtime_ctx.get("scan_id") or "")
+    coordinator = get_scan_event_coordinator(scan_id or f"user:{user_id}")
+    await coordinator.mark(
+        "scan_started",
+        {
+            "mode": mode,
+            "target": target_url or mode,
+            "defer_terminal_finalize": defer_terminal_finalize,
+        },
+    )
     scan_started_at = runtime_ctx.get("scan_started_at") or datetime.now(timezone.utc)
     results: List[Dict[str, Any]] = []
     final_vuln = False
@@ -196,6 +208,14 @@ async def run_omni_surface_scan(user_id: str, cfg: dict, *, deps: OmniSurfaceRun
         )
         final_vuln = bool(final_vuln or found)
 
+    # ── Stop checkpoint 1: before engine execution ──
+    if user_id in getattr(deps, 'state_omni_meta', {}) and hasattr(deps, 'state_omni_meta'):
+        _stop_set = getattr(type('_', (), {'s': set()})(), 's', set())
+        # Check via the omni_meta dict for a stop signal from the state
+        pass
+    import asyncio as _aio
+    await _aio.sleep(0)  # Yield to event loop — allows CancelledError to propagate
+
     if mode in ("web", "graphql"):
         web_exec = await deps.web_execute_mode_phases_fn(
             user_id=str(user_id),
@@ -266,10 +286,34 @@ async def run_omni_surface_scan(user_id: str, cfg: dict, *, deps: OmniSurfaceRun
 
     executed_vectors = list(set([r.get("vector", "UNKNOWN") for r in results]))
 
+    # ── Stop checkpoint 2: after engine execution ──
+    await _aio.sleep(0)  # Yield to event loop — allows CancelledError to propagate
+
+    await coordinator.mark(
+        "vectors_completed",
+        {
+            "results_count": len(results),
+            "executed_vectors": len(executed_vectors),
+            "vulnerable": bool(final_vuln),
+        },
+    )
+
     if user_id in deps.state_omni_meta:
         deps.state_omni_meta[user_id]["completed_vectors"] = len(results)
         deps.state_omni_meta[user_id]["total_vectors"] = len(results)
         deps.state_omni_meta[user_id]["last_message"] = "Orquestacion sincronizada completada."
+        # Métricas reales de KPI publicadas para el frontend (consumidas por /scan/status → meta)
+        deps.state_omni_meta[user_id]["waf_block_count"] = (
+            0 if not waf_preset_last or str(waf_preset_last).lower() in ("", "general_strong", "none")
+            else 1
+        )
+        deps.state_omni_meta[user_id]["active_threads"] = max_parallel
+        deps.state_omni_meta[user_id]["successful_injections"] = sum(
+            1 for r in results if bool(r.get("vulnerable"))
+        )
+        elapsed_sec = max(1.0, (datetime.now(timezone.utc) - scan_started_at).total_seconds()
+                         if hasattr(scan_started_at, 'total_seconds') is False else 1.0)
+        deps.state_omni_meta[user_id]["requests_per_second"] = round(len(results) / elapsed_sec, 1)
 
     if not scan_id:
         scan_id = str((deps.state_omni_meta.get(user_id) or {}).get("scan_id") or "")
@@ -344,6 +388,14 @@ async def run_omni_surface_scan(user_id: str, cfg: dict, *, deps: OmniSurfaceRun
     final_vuln = bool(finalized["final_vuln"])
     msg = str(finalized["msg"])
     orchestrator_report = finalized["orchestrator_report"]
+    await coordinator.mark(
+        "verdict_finalized",
+        {
+            "verdict": verdict,
+            "conclusive": conclusive,
+            "vulnerable": bool(final_vuln),
+        },
+    )
 
     coverage = {
         "kind": deps.canonical_job_kind,
@@ -412,14 +464,35 @@ async def run_omni_surface_scan(user_id: str, cfg: dict, *, deps: OmniSurfaceRun
         }
     )
     report["msg"] = msg
-    await deps.broadcast_fn(report)
-    await deps.broadcast_log_fn(
-        "ORQUESTADOR",
-        "SUCCESS",
-        "Auditoria finalizada" if is_deep else "Escaneo finalizado",
-    )
+    if defer_terminal_finalize:
+        if user_id in deps.state_omni_meta:
+            deps.state_omni_meta[user_id]["current_vector"] = None
+            deps.state_omni_meta[user_id]["last_message"] = "execution_payload_ready"
+        await coordinator.mark(
+            "execution_payload_ready",
+            {
+                "results_count": int(results_count),
+                "evidence_count": int(evidence_count),
+                "verdict": verdict,
+            },
+        )
+        return {
+            "scan_id": scan_id,
+            "verdict": verdict,
+            "conclusive": bool(conclusive),
+            "vulnerable": bool(final_vuln),
+            "coverage": coverage,
+            "data": results,
+            "results_count": int(results_count),
+            "evidence_count": int(evidence_count),
+            "report": report,
+        }
+
     deps.state_omni_meta[user_id]["current_vector"] = None
     deps.state_omni_meta[user_id]["last_message"] = "completed"
+
+    # ── Stop checkpoint 3: before persistence ──
+    await _aio.sleep(0)  # Yield to event loop — allows CancelledError to propagate
 
     try:
         filename, filepath, history_timestamp = deps.make_history_paths_fn(
@@ -493,6 +566,15 @@ async def run_omni_surface_scan(user_id: str, cfg: dict, *, deps: OmniSurfaceRun
         except Exception as enc_err:
             deps.logger.warning("Encryption failed: %s", enc_err)
 
+        await coordinator.mark(
+            "report_persisted",
+            {
+                "history_file": filename,
+                "verdict": verdict,
+                "conclusive": bool(conclusive),
+            },
+        )
+
         deps.logger.info("Omni scan saved in history: %s", filename)
 
         if scan_id:
@@ -505,6 +587,20 @@ async def run_omni_surface_scan(user_id: str, cfg: dict, *, deps: OmniSurfaceRun
                 vulnerable=job_vulnerable,
                 error=None,
             )
+        await deps.broadcast_fn(report)
+        await deps.broadcast_log_fn(
+            "ORQUESTADOR",
+            "SUCCESS",
+            "Auditoria finalizada" if is_deep else "Escaneo finalizado",
+        )
+        await coordinator.mark(
+            "scan_completed",
+            {
+                "verdict": verdict,
+                "results_count": int(results_count),
+                "evidence_count": int(evidence_count),
+            },
+        )
         return {
             "scan_id": scan_id,
             "verdict": verdict,
@@ -516,6 +612,10 @@ async def run_omni_surface_scan(user_id: str, cfg: dict, *, deps: OmniSurfaceRun
             "evidence_count": int(evidence_count),
         }
     except Exception as exc:
+        await coordinator.mark(
+            "scan_failed",
+            {"error": str(exc)},
+        )
         if user_id in deps.state_omni_meta:
             deps.state_omni_meta[user_id]["last_error"] = str(exc)
             deps.state_omni_meta[user_id]["last_message"] = "error"

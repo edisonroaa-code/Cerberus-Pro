@@ -17,18 +17,18 @@ class JobControlRuntimeDeps:
     canonical_job_kind: str
     autopilot_max_phase: int
     normalize_job_kind_fn: Callable[[Any], str]
-    job_latest_active_scan_id_fn: Callable[[str, str], Optional[str]]
-    job_list_fn: Callable[[str, int], list]
-    job_get_fn: Callable[[str], Optional[dict]]
-    job_get_coverage_v1_fn: Callable[..., Any]
-    fallback_coverage_response_from_job_fn: Callable[..., Any]
-    job_update_fn: Callable[..., None]
+    job_latest_active_scan_id_fn: Callable[[str, str], Awaitable[Optional[str]]]
+    job_list_fn: Callable[[str, int], Awaitable[list]]
+    job_get_fn: Callable[[str], Awaitable[Optional[dict]]]
+    job_get_coverage_v1_fn: Callable[..., Awaitable[Any]]
+    fallback_coverage_response_from_job_fn: Callable[..., Awaitable[Any]]
+    job_update_fn: Callable[..., Awaitable[None]]
     job_now_fn: Callable[[], str]
     terminate_process_tree_fn: Callable[[Any], None]
     normalize_unified_scan_cfg_fn: Callable[[dict], dict]
     validate_omni_config_fn: Callable[[dict], str]
     validate_target_fn: Callable[[str, Any], bool]
-    job_create_fn: Callable[..., None]
+    job_create_fn: Callable[..., Awaitable[None]]
     queue_enqueue_fn: Callable[..., Awaitable[None]]
     audit_log_fn: Callable[..., Awaitable[Any]]
     stop_metric_inc_fn: Callable[[str], None]
@@ -59,18 +59,18 @@ def get_scan_status_payload(*, current_user_sub: str, deps: JobControlRuntimeDep
     return {"running": False, "meta": meta}
 
 
-def list_jobs_payload(*, current_user_sub: str, deps: JobControlRuntimeDeps) -> list:
-    return deps.job_list_fn(current_user_sub, limit=30)
+async def list_jobs_payload(*, current_user_sub: str, deps: JobControlRuntimeDeps) -> list:
+    return await deps.job_list_fn(current_user_sub, limit=30)
 
 
-def get_job_payload(*, scan_id: str, current_user_sub: str, deps: JobControlRuntimeDeps) -> dict:
-    job = deps.job_get_fn(scan_id)
+async def get_job_payload(*, scan_id: str, current_user_sub: str, deps: JobControlRuntimeDeps) -> dict:
+    job = await deps.job_get_fn(scan_id)
     if not job or job.get("user_id") != current_user_sub:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
 
 
-def get_job_coverage_payload(
+async def get_job_coverage_payload(
     *,
     scan_id: str,
     current_user_sub: str,
@@ -78,18 +78,18 @@ def get_job_coverage_payload(
     cursor: int,
     deps: JobControlRuntimeDeps,
 ):
-    job = deps.job_get_fn(scan_id)
+    job = await deps.job_get_fn(scan_id)
     if not job or job.get("user_id") != current_user_sub:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    coverage_response = deps.job_get_coverage_v1_fn(scan_id=scan_id, limit=limit, cursor=cursor)
+    coverage_response = await deps.job_get_coverage_v1_fn(scan_id=scan_id, limit=limit, cursor=cursor)
     if coverage_response is None:
-        coverage_response = deps.fallback_coverage_response_from_job_fn(job, scan_id, limit=limit, cursor=cursor)
+        coverage_response = await deps.fallback_coverage_response_from_job_fn(job, scan_id, limit=limit, cursor=cursor)
     return coverage_response
 
 
 async def stop_job_payload(*, scan_id: str, current_user_sub: str, deps: JobControlRuntimeDeps) -> dict:
-    job = deps.job_get_fn(scan_id)
+    job = await deps.job_get_fn(scan_id)
     if not job or job.get("user_id") != current_user_sub:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -98,7 +98,7 @@ async def stop_job_payload(*, scan_id: str, current_user_sub: str, deps: JobCont
 
     if status_ == "queued":
         deps.state.cancelled_jobs.add(scan_id)
-        deps.job_update_fn(scan_id, status="stopped", finished_at=deps.job_now_fn(), error="stopped_by_user")
+        await deps.job_update_fn(scan_id, status="stopped", finished_at=deps.job_now_fn(), error="stopped_by_user")
         return {"status": "stopped"}
 
     if status_ != "running":
@@ -107,16 +107,24 @@ async def stop_job_payload(*, scan_id: str, current_user_sub: str, deps: JobCont
     if kind == deps.canonical_job_kind:
         if str(deps.state.running_job_by_user.get(current_user_sub) or "") not in {"", scan_id}:
             raise HTTPException(status_code=400, detail="Job is not the active running scan for this user")
+        # 1. Signal stop so scan functions can exit early at checkpoints
+        if hasattr(deps.state, 'stop_requested_users'):
+            deps.state.stop_requested_users.add(current_user_sub)
+        # 2. Kill subprocess FIRST (immediate effect on sqlmap/native engines)
+        if deps.state.proc and deps.state.proc.returncode is None:
+            deps.terminate_process_tree_fn(deps.state.proc)
+        # 3. Cancel the asyncio task AFTER subprocess is dead
         t = deps.state.current_job_task_by_user.get(current_user_sub)
         if t and not t.done():
             t.cancel()
-        if deps.state.proc and deps.state.proc.returncode is None:
-            deps.terminate_process_tree_fn(deps.state.proc)
-        deps.job_update_fn(scan_id, status="stopped", finished_at=deps.job_now_fn(), error="stopped_by_user")
+        await deps.job_update_fn(scan_id, status="stopped", finished_at=deps.job_now_fn(), error="stopped_by_user")
         deps.cleanup_scan_runtime_fn(current_user_sub)
+        # Clear stop flag after cleanup
+        if hasattr(deps.state, 'stop_requested_users'):
+            deps.state.stop_requested_users.discard(current_user_sub)
         return {"status": "stopped"}
 
-    deps.job_update_fn(scan_id, status="failed", finished_at=deps.job_now_fn(), error=f"unknown kind for stop: {kind}")
+    await deps.job_update_fn(scan_id, status="failed", finished_at=deps.job_now_fn(), error=f"unknown kind for stop: {kind}")
     return {"status": "failed"}
 
 
@@ -138,7 +146,7 @@ async def stop_scan_payload(*, current_user_sub: str, deps: JobControlRuntimeDep
         )
         return res
 
-    latest_scan_id = deps.job_latest_active_scan_id_fn(str(current_user_sub), deps.canonical_job_kind)
+    latest_scan_id = await deps.job_latest_active_scan_id_fn(str(current_user_sub), deps.canonical_job_kind)
     if latest_scan_id:
         res = await stop_job_payload(scan_id=str(latest_scan_id), current_user_sub=current_user_sub, deps=deps)
         deps.stop_metric_inc_fn(deps.canonical_job_kind)
@@ -161,13 +169,13 @@ async def stop_scan_payload(*, current_user_sub: str, deps: JobControlRuntimeDep
     scan_info = deps.state.active_scans.get(current_user_sub, {}) or {}
     scan_id = str(scan_info.get("scan_id") or "")
     if scan_id:
-        deps.job_update_fn(scan_id, status="stopped", finished_at=deps.job_now_fn(), error="stopped_by_user")
+        await deps.job_update_fn(scan_id, status="stopped", finished_at=deps.job_now_fn(), error="stopped_by_user")
     deps.cleanup_scan_runtime_fn(current_user_sub)
     return {"status": "stopped"}
 
 
 async def retry_job_payload(*, scan_id: str, current_user: Any, deps: JobControlRuntimeDeps) -> dict:
-    job = deps.job_get_fn(scan_id)
+    job = await deps.job_get_fn(scan_id)
     if not job or job.get("user_id") != current_user.sub:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -190,7 +198,7 @@ async def retry_job_payload(*, scan_id: str, current_user: Any, deps: JobControl
         raise HTTPException(status_code=403, detail="Target blocked by policy (retry denied)")
 
     new_scan_id = secrets.token_urlsafe(12)
-    deps.job_create_fn(
+    await deps.job_create_fn(
         scan_id=new_scan_id,
         user_id=current_user.sub,
         kind=kind,

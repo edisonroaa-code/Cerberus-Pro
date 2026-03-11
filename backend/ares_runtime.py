@@ -555,7 +555,7 @@ async def lifespan(app: FastAPI):
     
     # P7-05: Anti-Tamper audit verification on startup
     try:
-        audit_status = _audit_runtime_verify_chain_impl(deps=_audit_runtime_deps())
+        audit_status = await _audit_runtime_verify_chain_impl(deps=_audit_runtime_deps())
         if audit_status.get("valid"):
             logger.info("🛡️ Audit chain integrity verified")
         else:
@@ -563,7 +563,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to verify audit chain: {e}")
 
-    _init_jobs_db()
+    await _init_jobs_db_async()
 
     # Init optional Redis client for multi-instance job queue.
     await _init_job_queue_backend()
@@ -572,7 +572,7 @@ async def lifespan(app: FastAPI):
         # Recover job state on restart:
         # - running jobs cannot be resumed safely -> mark as interrupted.
         # - queued jobs are re-enqueued so the worker can continue.
-        _jobs_recover_on_startup()
+        await _jobs_recover_on_startup_async()
         await _enqueue_queued_jobs()
         await _ensure_job_background_tasks(force=True)
     else:
@@ -642,8 +642,10 @@ def _pg_enabled() -> bool:
     return _pg_enabled_impl(_postgres_persistence_runtime_deps())
 
 
-def _job_count_db(*, user_id: Optional[str] = None, statuses: Optional[List[str]] = None) -> int:
-    return _pg_job_count_db_impl(
+async def _job_count_db(*, user_id: Optional[str] = None, statuses: Optional[List[str]] = None) -> int:
+    from backend.core.postgres_persistence_runtime import job_count_db
+    return await asyncio.to_thread(
+        job_count_db,
         _postgres_persistence_runtime_deps(),
         user_id=user_id,
         statuses=statuses,
@@ -674,14 +676,16 @@ _read_unified_runtime_cfg = _scan_utils_read_unified_runtime_cfg
 _ensure_unified_cfg_aliases = _scan_utils_ensure_unified_cfg_aliases
 
 
-def _job_latest_active_scan_id(user_id: str, kind: str) -> Optional[str]:
-    return _pg_job_latest_active_scan_id_impl(
+async def _job_latest_active_scan_id(user_id: str, kind: str) -> Optional[str]:
+    from backend.core.postgres_persistence_runtime import job_latest_active_scan_id
+    return await asyncio.to_thread(
+        job_latest_active_scan_id,
         _postgres_persistence_runtime_deps(),
         user_id=user_id,
         kind=kind,
     )
 
-def _persist_scan_artifacts_db(
+async def _persist_scan_artifacts_db(
     *,
     scan_id: str,
     user_id: str,
@@ -701,7 +705,9 @@ def _persist_scan_artifacts_db(
     coverage: Optional[dict],
     report_data: Optional[dict],
 ):
-    _pg_persist_scan_artifacts_db_impl(
+    from backend.core.postgres_persistence_runtime import persist_scan_artifacts_db
+    await asyncio.to_thread(
+        persist_scan_artifacts_db,
         _postgres_persistence_runtime_deps(),
         scan_id=scan_id,
         user_id=user_id,
@@ -770,8 +776,9 @@ _build_default_vector_page = _coverage_mapper_build_default_vector_page
 _coverage_public_payload = _coverage_mapper_public_payload
 
 
-def _persist_coverage_v1_db(coverage_response: CoverageResponseV1) -> None:
-    _pg_persist_coverage_v1_db_impl(_postgres_persistence_runtime_deps(), coverage_response)
+async def _persist_coverage_v1_db(coverage_response: CoverageResponseV1) -> None:
+    from backend.core.postgres_persistence_runtime import persist_coverage_v1_db
+    await asyncio.to_thread(persist_coverage_v1_db, _postgres_persistence_runtime_deps(), coverage_response)
 
 def _jobs_recover_on_startup():
     # If the backend restarts, any "running" job is no longer controlled.
@@ -803,8 +810,8 @@ def _job_queue_bridge_deps() -> JobQueueBridgeDeps:
         run_job_by_kind_fn=_run_job_by_kind,
         heartbeat_loop_fn=_job_heartbeat_loop,
         init_audit_db_fn=_init_audit_db,
-        init_jobs_db_fn=_init_jobs_db,
-        jobs_recover_on_startup_fn=_jobs_recover_on_startup,
+        init_jobs_db_fn=_init_jobs_db_async,
+        jobs_recover_on_startup_fn=_jobs_recover_on_startup_async,
         jobs_sqlite_list_queued_job_ids_fn=_jobs_sqlite_list_queued_job_ids,
         runtime_init_job_queue_backend_fn=_job_runtime_init_job_queue_backend,
         runtime_refresh_queue_backlog_metric_fn=_job_runtime_refresh_queue_backlog_metric,
@@ -1021,11 +1028,25 @@ _fallback_coverage_response_from_job = _job_persistence_facade.fallback_coverage
 _job_get_coverage_v1 = _job_persistence_facade.get_job_coverage_v1
 
 
-def _append_audit_chain(log_entry: AuditLog):
-    _audit_store_append_audit_chain(AUDIT_DB_PATH, log_entry)
+async def _init_jobs_db_async():
+    from backend.core.postgres_persistence_runtime import init_jobs_db
+    await asyncio.to_thread(init_jobs_db, _postgres_persistence_runtime_deps())
 
-def _verify_audit_chain() -> dict:
-    return _audit_store_verify_audit_chain(AUDIT_DB_PATH)
+
+async def _jobs_recover_on_startup_async():
+    from backend.core.postgres_persistence_runtime import jobs_recover_on_startup
+    await asyncio.to_thread(
+        jobs_recover_on_startup,
+        _postgres_persistence_runtime_deps(),
+        stale_seconds=JOB_RUNNING_STALE_SECONDS,
+    )
+
+
+async def _append_audit_chain(log_entry: AuditLog):
+    await asyncio.to_thread(_audit_store_append_audit_chain, AUDIT_DB_PATH, log_entry)
+
+async def _verify_audit_chain() -> dict:
+    return await asyncio.to_thread(_audit_store_verify_audit_chain, AUDIT_DB_PATH)
 
 app = FastAPI(
     title="Cerberus Pro API",
@@ -1429,7 +1450,7 @@ async def get_scan_status(current_user: JWTPayload = Depends(get_current_user)):
 
 @app.get("/jobs")
 async def list_jobs(current_user: JWTPayload = Depends(require_permission(Permission.SCAN_READ))):
-    return _job_control_list_jobs_payload_impl(
+    return await _job_control_list_jobs_payload_impl(
         current_user_sub=str(current_user.sub),
         deps=_job_control_runtime_deps(),
     )
@@ -1437,7 +1458,7 @@ async def list_jobs(current_user: JWTPayload = Depends(require_permission(Permis
 
 @app.get("/jobs/{scan_id}")
 async def get_job(scan_id: str, current_user: JWTPayload = Depends(require_permission(Permission.SCAN_READ))):
-    return _job_control_get_job_payload_impl(
+    return await _job_control_get_job_payload_impl(
         scan_id=str(scan_id),
         current_user_sub=str(current_user.sub),
         deps=_job_control_runtime_deps(),
@@ -1451,7 +1472,7 @@ async def get_job_coverage_v1(
     cursor: int = Query(default=0, ge=0),
     current_user: JWTPayload = Depends(require_permission(Permission.SCAN_READ)),
 ):
-    return _job_control_get_job_coverage_payload_impl(
+    return await _job_control_get_job_coverage_payload_impl(
         scan_id=str(scan_id),
         current_user_sub=str(current_user.sub),
         limit=int(limit),
@@ -1586,7 +1607,7 @@ async def get_audit_logs(
 
 @app.get("/admin/audit-chain/verify")
 async def verify_audit_chain(current_user: JWTPayload = Depends(require_permission(Permission.ADMIN_AUDIT))):
-    return _audit_runtime_verify_chain_impl(deps=_audit_runtime_deps())
+    return await _audit_runtime_verify_chain_impl(deps=_audit_runtime_deps())
 
 
 # ============================================================================

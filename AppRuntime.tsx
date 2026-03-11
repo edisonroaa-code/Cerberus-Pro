@@ -773,7 +773,7 @@ const App: React.FC = () => {
         }
 
         console.log('[WebSocket] Iniciando conexión...');
-        addLog('SISTEMA', 'INFO', 'Núcleo Cerberus v3.0 cargado.');
+        addLog('SISTEMA', 'INFO', 'Núcleo Cerberus Pro v5.1 (Sovereign AI) cargado.');
 
         let retryCount = 0;
         const maxRetries = 5;
@@ -962,24 +962,22 @@ const App: React.FC = () => {
         setIsRunning(Boolean(unifiedStatus.running || runningByStatus));
     }, [unifiedJobStatus, unifiedStatus.running]);
 
-    // Keep tactical KPIs updated while a real job is active.
+    // Keep tactical KPIs updated from real backend data while a job is active.
+    // Data source: unifiedStatus.meta, populated by the /scan/status polling above.
+    // No synthetic/random values — if the backend doesn't report a field, it shows as 0.
     useEffect(() => {
         if (!isRunning) return;
-        const interval = setInterval(() => {
-            setMetrics(prev => {
-                const load = Math.max(1, targetConfig.aggressionLevel);
-                const next = {
-                    requestsPerSecond: Math.max(1, load + Math.floor(Math.random() * (load + 2))),
-                    evasionRate: Math.max(70, Math.min(99, 88 + (Math.random() * 8 - 4))),
-                    activeThreads: Math.max(1, Math.min(32, load + Math.floor(Math.random() * 4))),
-                    wafBlockCount: Math.random() > 0.85 ? 1 : 0,
-                    successfulInjections: 0
-                };
-                return [...prev.slice(-50), next];
-            });
-        }, 1500);
-        return () => clearInterval(interval);
-    }, [isRunning, targetConfig.aggressionLevel]);
+        const meta = unifiedStatus.meta || {};
+        const next = {
+            requestsPerSecond: typeof meta.requests_per_second === 'number' ? meta.requests_per_second : 0,
+            evasionRate: typeof meta.evasion_rate === 'number' ? meta.evasion_rate : 0,
+            activeThreads: typeof meta.active_threads === 'number' ? meta.active_threads : 0,
+            wafBlockCount: typeof meta.waf_block_count === 'number' ? meta.waf_block_count : 0,
+            successfulInjections: typeof meta.successful_injections === 'number' ? meta.successful_injections : 0,
+        };
+        setMetrics(prev => [...prev.slice(-50), next]);
+    }, [isRunning, unifiedStatus.meta]);
+
 
     const handleStartStop = async () => {
         if (isRunning) {

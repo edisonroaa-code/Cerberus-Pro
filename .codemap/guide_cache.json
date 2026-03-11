@@ -1,0 +1,1520 @@
+{
+  "version": 1,
+  "project_path": "c:/users/usuario/desktop/aplicativos/cerberus pro",
+  "generated_at": 1773142434,
+  "summary": "# 🐺 CERBERUS Pro (v4 Omni-Surface)",
+  "summary_file_path": "README.md",
+  "summary_start_line": 1,
+  "summary_end_line": 2,
+  "docs": [
+    {
+      "file_path": "README.md",
+      "mtime_unix": 1772132901,
+      "size_bytes": 4513
+    },
+    {
+      "file_path": "docs/L5_REMEDIATION_MATRIX.md",
+      "mtime_unix": 1772471334,
+      "size_bytes": 7883
+    },
+    {
+      "file_path": "docs/PAYLOAD_MUTATION.md",
+      "mtime_unix": 1771005559,
+      "size_bytes": 1408
+    },
+    {
+      "file_path": "docs/POST_EXPLOITATION.md",
+      "mtime_unix": 1771005557,
+      "size_bytes": 1897
+    }
+  ],
+  "symbols_count": 241,
+  "relations_count": 60,
+  "sections": [
+    {
+      "id": "README.md#L1",
+      "title": "🐺 CERBERUS Pro (v4 Omni-Surface)",
+      "level": 1,
+      "file_path": "README.md",
+      "start_line": 1,
+      "end_line": 4,
+      "body_preview": "Orquestador local de scans **autorizados** basado en FastAPI + React, con **motor unificado multi-vector** + **Jobs** (cola/historial), hardening y auditoria.",
+      "code_links": [
+        {
+          "symbol_uid": "fd22971394e5f291",
+          "file_path": "components/AuthContext.tsx",
+          "name": "fetchWithTimeout",
+          "kind": "variable",
+          "start_line": 33,
+          "end_line": 46,
+          "score": 19.26923076923077,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=5 (+10)",
+            "local_centrality: degree_in_relevant=5 (+2.5)",
+            "path_match: token 'con' in file_path (+6)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "717429a101404153",
+          "file_path": "components/AuthContext.tsx",
+          "name": "AuthProvider",
+          "kind": "variable",
+          "start_line": 48,
+          "end_line": 215,
+          "score": 18.53846153846154,
+          "reasons": [
+            "graph_proximity: outgoing to relevant import=0 reference=1 (+0.5)",
+            "local_centrality: degree_in_relevant=1 (+0.5)",
+            "name_match: token 'pro' in symbol.name (+10)",
+            "path_match: token 'con' in file_path (+6)",
+            "token_coverage: matched 2/13 (+1.5)"
+          ]
+        },
+        {
+          "symbol_uid": "fdca5b86b8610423",
+          "file_path": "components/AuthContext.tsx",
+          "name": "checkSession",
+          "kind": "variable",
+          "start_line": 62,
+          "end_line": 87,
+          "score": 15.26923076923077,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=3 (+6)",
+            "graph_proximity: outgoing to relevant import=0 reference=1 (+0.5)",
+            "local_centrality: degree_in_relevant=4 (+2.0)",
+            "path_match: token 'con' in file_path (+6)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "README.md#L5",
+      "title": "Estado (Feb-2026)",
+      "level": 2,
+      "file_path": "README.md",
+      "start_line": 5,
+      "end_line": 11,
+      "body_preview": "- Backend y UI operativos en modo unificado.\n- Runtime backend canónico consolidado en `backend/ares_api.py` (compatibilidad vía `backend/cerberus_pro_api_secure.py`).\n- Jobs API operativa: `GET /jobs`, `GET /jobs/{scan_id}`, `POST /jobs/{scan_id}/stop`, `POST /jobs/{scan_id}/retry`.\n- Hardening aplicado: anti-traversal en historial, kill de arbol de procesos, watchdog de timeout global, policy de scope (allowlist host/IP/CIDR + DNS + redirects), JWT con `iss/aud`, Sentry scrub, auditoria con hash-chain en SQLite.\n- Observabilidad/testing base: `/metrics` + Pytest/Vitest.",
+      "code_links": [
+        {
+          "symbol_uid": "32015a14998c7e5e",
+          "file_path": "AppRuntime.tsx",
+          "name": "normalizeTargetConfig",
+          "kind": "variable",
+          "start_line": 58,
+          "end_line": 99,
+          "score": 12.76923076923077,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=2 (+4)",
+            "graph_proximity: outgoing to relevant import=0 reference=1 (+0.5)",
+            "local_centrality: degree_in_relevant=3 (+1.5)",
+            "path_match: token 'runtime' in file_path (+6)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "6b996455ffcbeda5",
+          "file_path": "AppRuntime.tsx",
+          "name": "App",
+          "kind": "variable",
+          "start_line": 142,
+          "end_line": 1474,
+          "score": 12.76923076923077,
+          "reasons": [
+            "graph_proximity: outgoing to relevant import=0 reference=6 (+3.0)",
+            "local_centrality: degree_in_relevant=6 (+3.0)",
+            "path_match: token 'runtime' in file_path (+6)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "67cdef037be25997",
+          "file_path": "services/backendHealth.ts",
+          "name": "checkBackendReady",
+          "kind": "variable",
+          "start_line": 32,
+          "end_line": 68,
+          "score": 12.76923076923077,
+          "reasons": [
+            "graph_proximity: outgoing to relevant import=0 reference=2 (+1.0)",
+            "local_centrality: degree_in_relevant=2 (+1.0)",
+            "name_match: token 'backend' in symbol.name (+10)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "README.md#L12",
+      "title": "Requisitos",
+      "level": 2,
+      "file_path": "README.md",
+      "start_line": 12,
+      "end_line": 15,
+      "body_preview": "- Python 3.9+ (en este workspace: 3.12)\n- Node 18+ (en este workspace: 22)",
+      "code_links": [
+        {
+          "symbol_uid": "f9b4861d67b23a36",
+          "file_path": "components/AttackMap.tsx",
+          "name": "nodeColor",
+          "kind": "variable",
+          "start_line": 231,
+          "end_line": 237,
+          "score": 11.666666666666666,
+          "reasons": [
+            "name_match: token 'node' in symbol.name (+10)",
+            "token_coverage: matched 1/6 (+1.7)"
+          ]
+        },
+        {
+          "symbol_uid": "d62db31fbc30702e",
+          "file_path": "components/AttackMap.tsx",
+          "name": "AttackMap",
+          "kind": "variable",
+          "start_line": 86,
+          "end_line": 373,
+          "score": 0.5,
+          "reasons": [
+            "graph_proximity: outgoing to relevant import=0 reference=1 (+0.5)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "README.md#L16",
+      "title": "Inicio rapido (DEV)",
+      "level": 2,
+      "file_path": "README.md",
+      "start_line": 16,
+      "end_line": 21,
+      "body_preview": "```bash\npip install -r backend/requirements.txt\nnpm install\ncp .env.example .env",
+      "code_links": [
+        {
+          "symbol_uid": "ab7ec7d19a718141",
+          "file_path": "backend/requirements.txt",
+          "name": "[Legacy] backend/requirements.txt",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 32.30769230769231,
+          "reasons": [
+            "name_match: token 'backend' in symbol.name (+10)",
+            "name_match: token 'requirements' in symbol.name (+10)",
+            "name_match: token 'txt' in symbol.name (+10)",
+            "token_coverage: matched 3/13 (+2.3)"
+          ]
+        },
+        {
+          "symbol_uid": "67cdef037be25997",
+          "file_path": "services/backendHealth.ts",
+          "name": "checkBackendReady",
+          "kind": "variable",
+          "start_line": 32,
+          "end_line": 68,
+          "score": 12.76923076923077,
+          "reasons": [
+            "graph_proximity: outgoing to relevant import=0 reference=2 (+1.0)",
+            "local_centrality: degree_in_relevant=2 (+1.0)",
+            "name_match: token 'backend' in symbol.name (+10)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "ccdfa385bdab3f0d",
+          "file_path": "backend/DEPRECATIONS_V1.md",
+          "name": "[Legacy] backend/DEPRECATIONS_V1.md",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 10.76923076923077,
+          "reasons": [
+            "name_match: token 'backend' in symbol.name (+10)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "README.md#L22",
+      "title": "Arranque \"inteligente\": si algun puerto ya esta ocupado, no tumba todo.",
+      "level": 1,
+      "file_path": "README.md",
+      "start_line": 22,
+      "end_line": 32,
+      "body_preview": "npm run dev:all\n```",
+      "code_links": [
+        {
+          "symbol_uid": "32015a14998c7e5e",
+          "file_path": "AppRuntime.tsx",
+          "name": "normalizeTargetConfig",
+          "kind": "variable",
+          "start_line": 58,
+          "end_line": 99,
+          "score": 23.11111111111111,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=2 (+4)",
+            "graph_proximity: outgoing to relevant import=0 reference=1 (+0.5)",
+            "local_centrality: degree_in_relevant=3 (+1.5)",
+            "name_match: token 'no' in symbol.name (+10)",
+            "path_match: token 'run' in file_path (+6)",
+            "token_coverage: matched 2/18 (+1.1)"
+          ]
+        },
+        {
+          "symbol_uid": "7a347fb1caedac09",
+          "file_path": "AppRuntime.tsx",
+          "name": "normalizeJobStatus",
+          "kind": "variable",
+          "start_line": 111,
+          "end_line": 111,
+          "score": 22.11111111111111,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=2 (+4)",
+            "local_centrality: degree_in_relevant=2 (+1.0)",
+            "name_match: token 'no' in symbol.name (+10)",
+            "path_match: token 'run' in file_path (+6)",
+            "token_coverage: matched 2/18 (+1.1)"
+          ]
+        },
+        {
+          "symbol_uid": "2ce52c4d6bbf3d19",
+          "file_path": "backend/chain_templates/sql_injection_basic.yaml",
+          "name": "[Legacy] backend/chain_templates/sql_injection_basic.yaml",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 21.11111111111111,
+          "reasons": [
+            "name_match: token 'si' in symbol.name (+10)",
+            "name_match: token 'ya' in symbol.name (+10)",
+            "token_coverage: matched 2/18 (+1.1)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "README.md#L33",
+      "title": "Scripts utiles",
+      "level": 2,
+      "file_path": "README.md",
+      "start_line": 33,
+      "end_line": 41,
+      "body_preview": "- `npm run dev:all`: inicia lo necesario para DEV, tolerante a puertos ya en uso (no rompe todo por `EADDRINUSE`).\n- `npm run dev:all:full`: variante fail-fast (si algo falla, cae todo).\n- `npm run dev:agents`: solo ws-bridge + agent-runner.\n- `npm test`: Vitest.\n- `npm run guard:recall`: valida guardrails del recall/rebranding (rutas, entrypoint canonico, archivos legacy).\n- `npm run guard:deprecations`: bloquea patrones deprecados en backend runtime (`datetime.utcnow`, `@validator`, `class Config`).\n- `python -m pytest -q` (en venv): Pytest.",
+      "code_links": [
+        {
+          "symbol_uid": "32015a14998c7e5e",
+          "file_path": "AppRuntime.tsx",
+          "name": "normalizeTargetConfig",
+          "kind": "variable",
+          "start_line": 58,
+          "end_line": 99,
+          "score": 12.76923076923077,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=2 (+4)",
+            "graph_proximity: outgoing to relevant import=0 reference=1 (+0.5)",
+            "local_centrality: degree_in_relevant=3 (+1.5)",
+            "path_match: token 'run' in file_path (+6)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "6b996455ffcbeda5",
+          "file_path": "AppRuntime.tsx",
+          "name": "App",
+          "kind": "variable",
+          "start_line": 142,
+          "end_line": 1474,
+          "score": 12.76923076923077,
+          "reasons": [
+            "graph_proximity: outgoing to relevant import=0 reference=6 (+3.0)",
+            "local_centrality: degree_in_relevant=6 (+3.0)",
+            "path_match: token 'run' in file_path (+6)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "b7420541588286bc",
+          "file_path": "AppRuntime.tsx",
+          "name": "loadGeminiService",
+          "kind": "variable",
+          "start_line": 32,
+          "end_line": 37,
+          "score": 11.76923076923077,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=2 (+4)",
+            "local_centrality: degree_in_relevant=2 (+1.0)",
+            "path_match: token 'run' in file_path (+6)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "README.md#L42",
+      "title": "Puertos (evitar caidas por conflictos)",
+      "level": 2,
+      "file_path": "README.md",
+      "start_line": 42,
+      "end_line": 50,
+      "body_preview": "Si ya tenes algun proceso ocupando puertos, `dev:all` los detecta y **no** intenta levantar otro.",
+      "code_links": [
+        {
+          "symbol_uid": "5b86f567ed58a253",
+          "file_path": "services/reportNormalization.ts",
+          "name": "normalizeReport",
+          "kind": "variable",
+          "start_line": 180,
+          "end_line": 245,
+          "score": 15.833333333333334,
+          "reasons": [
+            "graph_proximity: outgoing to relevant import=0 reference=5 (+2.5)",
+            "local_centrality: degree_in_relevant=5 (+2.5)",
+            "name_match: token 'por' in symbol.name (+10)",
+            "token_coverage: matched 1/12 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "51a258697b61a08c",
+          "file_path": "services/reportNormalization.ts",
+          "name": "toObject",
+          "kind": "variable",
+          "start_line": 58,
+          "end_line": 61,
+          "score": 14.333333333333332,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=3 (+6)",
+            "local_centrality: degree_in_relevant=3 (+1.5)",
+            "path_match: token 'por' in file_path (+6)",
+            "token_coverage: matched 1/12 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "541af526bfbe86a8",
+          "file_path": "services/reportNormalization.ts",
+          "name": "parseBoolean",
+          "kind": "variable",
+          "start_line": 63,
+          "end_line": 66,
+          "score": 14.333333333333332,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=3 (+6)",
+            "local_centrality: degree_in_relevant=3 (+1.5)",
+            "path_match: token 'por' in file_path (+6)",
+            "token_coverage: matched 1/12 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "README.md#L51",
+      "title": "Seguridad operativa (resumen tecnico)",
+      "level": 2,
+      "file_path": "README.md",
+      "start_line": 51,
+      "end_line": 62,
+      "body_preview": "- Auth “cookie-first”: `credentials: include` en frontend; access token en memoria; refresh via cookie HttpOnly.\n- Scope control: allowlist por host/IP/CIDR + bloqueo de redes peligrosas por defecto (si esta configurado en policy).\n- Ejecucion segura de motor: args en lista, `shell=False`, kill de grupo/arbol, timeout global.\n- Chain sandbox (Fase 3):\n  - `CERBERUS_CHAIN_SANDBOX_MODE=auto|docker|local`\n  - `CERBERUS_CHAIN_SANDBOX_IMAGE=cerberus-chain-runner:latest` (recomendado)\n  - Dockerfile base: `backend/sandbox/Dockerfile.chain-runner`\n- Historial:\n  - `.json` (segun politica) + `.enc",
+      "code_links": [
+        {
+          "symbol_uid": "4ecdcce572d24426",
+          "file_path": "components/AuthContext.tsx",
+          "name": "refreshAccessToken",
+          "kind": "variable",
+          "start_line": 89,
+          "end_line": 119,
+          "score": 32.80769230769231,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=1 (+2)",
+            "graph_proximity: outgoing to relevant import=0 reference=2 (+1.0)",
+            "local_centrality: degree_in_relevant=3 (+1.5)",
+            "name_match: token 'access' in symbol.name (+10)",
+            "name_match: token 'token' in symbol.name (+10)",
+            "path_match: token 'auth' in file_path (+6)",
+            "token_coverage: matched 3/13 (+2.3)"
+          ]
+        },
+        {
+          "symbol_uid": "fd22971394e5f291",
+          "file_path": "components/AuthContext.tsx",
+          "name": "fetchWithTimeout",
+          "kind": "variable",
+          "start_line": 33,
+          "end_line": 46,
+          "score": 19.26923076923077,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=5 (+10)",
+            "local_centrality: degree_in_relevant=5 (+2.5)",
+            "path_match: token 'auth' in file_path (+6)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "7695982c5b8be594",
+          "file_path": "components/AuthContext.tsx",
+          "name": "useAuth",
+          "kind": "variable",
+          "start_line": 217,
+          "end_line": 223,
+          "score": 15.76923076923077,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=2 (+4)",
+            "local_centrality: degree_in_relevant=2 (+1.0)",
+            "name_match: token 'auth' in symbol.name (+10)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "README.md#L63",
+      "title": "Notas de dependencias opcionales",
+      "level": 2,
+      "file_path": "README.md",
+      "start_line": 63,
+      "end_line": 66,
+      "body_preview": "El backend deshabilita automaticamente capacidades si faltan libs:\n- `dnslib` (DNS OOB) y `scapy` (ICMP) pueden no estar instaladas en Windows o requerir setup adicional.",
+      "code_links": [
+        {
+          "symbol_uid": "67cdef037be25997",
+          "file_path": "services/backendHealth.ts",
+          "name": "checkBackendReady",
+          "kind": "variable",
+          "start_line": 32,
+          "end_line": 68,
+          "score": 12.76923076923077,
+          "reasons": [
+            "graph_proximity: outgoing to relevant import=0 reference=2 (+1.0)",
+            "local_centrality: degree_in_relevant=2 (+1.0)",
+            "name_match: token 'backend' in symbol.name (+10)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "ccdfa385bdab3f0d",
+          "file_path": "backend/DEPRECATIONS_V1.md",
+          "name": "[Legacy] backend/DEPRECATIONS_V1.md",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 10.76923076923077,
+          "reasons": [
+            "name_match: token 'backend' in symbol.name (+10)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "2656298bdbabdead",
+          "file_path": "backend/INTEGRATION_MATRIX_ORGANIGRAMA_V1.md",
+          "name": "[Legacy] backend/INTEGRATION_MATRIX_ORGANIGRAMA_V1.md",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 10.76923076923077,
+          "reasons": [
+            "name_match: token 'backend' in symbol.name (+10)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "README.md#L67",
+      "title": "Smoke tests manuales",
+      "level": 2,
+      "file_path": "README.md",
+      "start_line": 67,
+      "end_line": 70,
+      "body_preview": "- WS: `python tools/ws_smoke.py` (requiere backend arriba).\n- Jobs (in-process): `python tools/smoke_jobs.py`.",
+      "code_links": [
+        {
+          "symbol_uid": "67cdef037be25997",
+          "file_path": "services/backendHealth.ts",
+          "name": "checkBackendReady",
+          "kind": "variable",
+          "start_line": 32,
+          "end_line": 68,
+          "score": 12.76923076923077,
+          "reasons": [
+            "graph_proximity: outgoing to relevant import=0 reference=2 (+1.0)",
+            "local_centrality: degree_in_relevant=2 (+1.0)",
+            "name_match: token 'backend' in symbol.name (+10)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "7a347fb1caedac09",
+          "file_path": "AppRuntime.tsx",
+          "name": "normalizeJobStatus",
+          "kind": "variable",
+          "start_line": 111,
+          "end_line": 111,
+          "score": 10.76923076923077,
+          "reasons": [
+            "name_match: token 'jobs' in symbol.name (+10)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "ccdfa385bdab3f0d",
+          "file_path": "backend/DEPRECATIONS_V1.md",
+          "name": "[Legacy] backend/DEPRECATIONS_V1.md",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 10.76923076923077,
+          "reasons": [
+            "name_match: token 'backend' in symbol.name (+10)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "README.md#L71",
+      "title": "Legal",
+      "level": 2,
+      "file_path": "README.md",
+      "start_line": 71,
+      "end_line": 73,
+      "body_preview": "Usar solo sobre targets con autorizacion explicita.",
+      "code_links": [
+        {
+          "symbol_uid": "fd22971394e5f291",
+          "file_path": "components/AuthContext.tsx",
+          "name": "fetchWithTimeout",
+          "kind": "variable",
+          "start_line": 33,
+          "end_line": 46,
+          "score": 19.61111111111111,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=5 (+10)",
+            "local_centrality: degree_in_relevant=5 (+2.5)",
+            "path_match: token 'con' in file_path (+6)",
+            "token_coverage: matched 1/9 (+1.1)"
+          ]
+        },
+        {
+          "symbol_uid": "fdca5b86b8610423",
+          "file_path": "components/AuthContext.tsx",
+          "name": "checkSession",
+          "kind": "variable",
+          "start_line": 62,
+          "end_line": 87,
+          "score": 15.61111111111111,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=3 (+6)",
+            "graph_proximity: outgoing to relevant import=0 reference=1 (+0.5)",
+            "local_centrality: degree_in_relevant=4 (+2.0)",
+            "path_match: token 'con' in file_path (+6)",
+            "token_coverage: matched 1/9 (+1.1)"
+          ]
+        },
+        {
+          "symbol_uid": "7695982c5b8be594",
+          "file_path": "components/AuthContext.tsx",
+          "name": "useAuth",
+          "kind": "variable",
+          "start_line": 217,
+          "end_line": 223,
+          "score": 12.11111111111111,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=2 (+4)",
+            "local_centrality: degree_in_relevant=2 (+1.0)",
+            "path_match: token 'con' in file_path (+6)",
+            "token_coverage: matched 1/9 (+1.1)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "README.md#L74",
+      "title": "Recall / Rebranding",
+      "level": 2,
+      "file_path": "README.md",
+      "start_line": 74,
+      "end_line": 80,
+      "body_preview": "- Manifiesto de recall: `backend/RECALL_MANIFEST_V1.md`\n- Progreso del roadmap: `backend/RECALL_ROADMAP_PROGRESS_V1.md`\n- Matriz/organigrama de integracion real: `backend/INTEGRATION_MATRIX_ORGANIGRAMA_V1.md`\n- Arquitectura rebrand v1: `backend/REBRAND_ARCHITECTURE_V1.md`\n- Deprecaciones v1: `backend/DEPRECATIONS_V1.md`",
+      "code_links": [
+        {
+          "symbol_uid": "93e9f7eb61540fa5",
+          "file_path": "backend/RECALL_ROADMAP_PROGRESS_V1.md",
+          "name": "[Legacy] backend/RECALL_ROADMAP_PROGRESS_V1.md",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 43.333333333333336,
+          "reasons": [
+            "name_match: token 'backend' in symbol.name (+10)",
+            "name_match: token 'recall' in symbol.name (+10)",
+            "name_match: token 'recall_roadmap_progress_v1' in symbol.name (+10)",
+            "name_match: token 'roadmap' in symbol.name (+10)",
+            "token_coverage: matched 4/12 (+3.3)"
+          ]
+        },
+        {
+          "symbol_uid": "d80b4aae98e2d3a3",
+          "file_path": "backend/RECALL_MANIFEST_V1.md",
+          "name": "[Legacy] backend/RECALL_MANIFEST_V1.md",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 32.5,
+          "reasons": [
+            "name_match: token 'backend' in symbol.name (+10)",
+            "name_match: token 'recall' in symbol.name (+10)",
+            "name_match: token 'recall_manifest_v1' in symbol.name (+10)",
+            "token_coverage: matched 3/12 (+2.5)"
+          ]
+        },
+        {
+          "symbol_uid": "2656298bdbabdead",
+          "file_path": "backend/INTEGRATION_MATRIX_ORGANIGRAMA_V1.md",
+          "name": "[Legacy] backend/INTEGRATION_MATRIX_ORGANIGRAMA_V1.md",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 21.666666666666668,
+          "reasons": [
+            "name_match: token 'backend' in symbol.name (+10)",
+            "name_match: token 'organigrama' in symbol.name (+10)",
+            "token_coverage: matched 2/12 (+1.7)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "README.md#L81",
+      "title": "Sistema Activo (Scope V1)",
+      "level": 2,
+      "file_path": "README.md",
+      "start_line": 81,
+      "end_line": 88,
+      "body_preview": "- Frontend activo: `App.tsx`, `components/`, `services/`, `utils/`\n- Backend activo: `backend/ares_api.py`, `backend/core/`, `backend/routers/`, `backend/engines/`, `backend/db/`, `backend/worker/`, `backend/services/`\n- Runtime scripts activos: `package.json` scripts (`backend.ares_api:app`), `tools/dev-all.mjs`, `start_ares.py`, `docker-compose.yml`, `backend/Dockerfile`\n- Guardrails activos: `tools/recall_guard.py`, `tools/deprecation_guard.py`\n- Endpoints canónicos de ejecución: `POST /scan/start`, `POST /scan/stop`, `GET /scan/status`, `GET /scan/capabilities` (hard break: sin `/scan/om",
+      "code_links": [
+        {
+          "symbol_uid": "fd22971394e5f291",
+          "file_path": "components/AuthContext.tsx",
+          "name": "fetchWithTimeout",
+          "kind": "variable",
+          "start_line": 33,
+          "end_line": 46,
+          "score": 26.03846153846154,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=5 (+10)",
+            "local_centrality: degree_in_relevant=5 (+2.5)",
+            "path_match: token 'components' in file_path (+6)",
+            "path_match: token 'tsx' in file_path (+6)",
+            "token_coverage: matched 2/13 (+1.5)"
+          ]
+        },
+        {
+          "symbol_uid": "6b996455ffcbeda5",
+          "file_path": "AppRuntime.tsx",
+          "name": "App",
+          "kind": "variable",
+          "start_line": 142,
+          "end_line": 1474,
+          "score": 23.53846153846154,
+          "reasons": [
+            "graph_proximity: outgoing to relevant import=0 reference=6 (+3.0)",
+            "local_centrality: degree_in_relevant=6 (+3.0)",
+            "name_match: token 'app' in symbol.name (+10)",
+            "path_match: token 'tsx' in file_path (+6)",
+            "token_coverage: matched 2/13 (+1.5)"
+          ]
+        },
+        {
+          "symbol_uid": "fdca5b86b8610423",
+          "file_path": "components/AuthContext.tsx",
+          "name": "checkSession",
+          "kind": "variable",
+          "start_line": 62,
+          "end_line": 87,
+          "score": 22.03846153846154,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=3 (+6)",
+            "graph_proximity: outgoing to relevant import=0 reference=1 (+0.5)",
+            "local_centrality: degree_in_relevant=4 (+2.0)",
+            "path_match: token 'components' in file_path (+6)",
+            "path_match: token 'tsx' in file_path (+6)",
+            "token_coverage: matched 2/13 (+1.5)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/L5_REMEDIATION_MATRIX.md#L1",
+      "title": "Matriz de Remediacion L5 (APT / Grado Militar)",
+      "level": 1,
+      "file_path": "docs/L5_REMEDIATION_MATRIX.md",
+      "start_line": 1,
+      "end_line": 5,
+      "body_preview": "Fecha de auditoria base: 2026-02-27\nObjetivo: cerrar brechas criticas para aproximar el sistema a un nivel L5 real, medible y auditable.",
+      "code_links": [
+        {
+          "symbol_uid": "85ce21ead6b390a9",
+          "file_path": "backend/core/xml/payloads/error_based.xml",
+          "name": "[Legacy] backend/core/xml/payloads/error_based.xml",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 10.76923076923077,
+          "reasons": [
+            "name_match: token 'base' in symbol.name (+10)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "71362ee13ec7d8f3",
+          "file_path": "services/apiConfig.ts",
+          "name": "resolveDefaultApiBase",
+          "kind": "variable",
+          "start_line": 11,
+          "end_line": 19,
+          "score": 10.76923076923077,
+          "reasons": [
+            "name_match: token 'base' in symbol.name (+10)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "c0bcc90977e6fbed",
+          "file_path": "services/apiConfig.ts",
+          "name": "WS_BASE_URL",
+          "kind": "export",
+          "start_line": 29,
+          "end_line": 29,
+          "score": 10.76923076923077,
+          "reasons": [
+            "name_match: token 'base' in symbol.name (+10)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/L5_REMEDIATION_MATRIX.md#L6",
+      "title": "Alcance y criterio",
+      "level": 2,
+      "file_path": "docs/L5_REMEDIATION_MATRIX.md",
+      "start_line": 6,
+      "end_line": 13,
+      "body_preview": "- Esta matriz prioriza controles tecnicos verificables, no etiquetas comerciales.\n- Cada accion tiene criterio de aceptacion y evidencia esperada.\n- Prioridades:\n  - P0: bloqueo inmediato de riesgo critico (0-7 dias)\n  - P1: endurecimiento estructural (8-30 dias)\n  - P2: madurez avanzada y aseguramiento continuo (31-90 dias)",
+      "code_links": [
+        {
+          "symbol_uid": "9dd76b8719b70afb",
+          "file_path": "AppRuntime.tsx",
+          "name": "handleStartStop",
+          "kind": "variable",
+          "start_line": 982,
+          "end_line": 988,
+          "score": 10.76923076923077,
+          "reasons": [
+            "name_match: token 'esta' in symbol.name (+10)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/L5_REMEDIATION_MATRIX.md#L14",
+      "title": "P0 (0-7 dias): Riesgo critico",
+      "level": 2,
+      "file_path": "docs/L5_REMEDIATION_MATRIX.md",
+      "start_line": 14,
+      "end_line": 26,
+      "body_preview": "| ID | Riesgo | Accion | Archivos objetivo | Criterio de aceptacion | Evidencia |\n|---|---|---|---|---|---|\n| P0-01 | Escalada de privilegios por `register` | Restringir `POST /auth/register` a `ADMIN`/`SUPER_ADMIN` y forzar rol server-side (ignorar `role` de input para no-admin). | `backend/routers/auth.py` | Usuario no admin recibe `403` al crear usuarios; rol final no viene del cliente sin permiso. | Test API: intento con token pentester = `403`. |\n| P0-02 | Exposicion de hash de password en respuestas | Eliminar `response_model=User` en registro/perfil administrativo; usar DTO seguro sin `",
+      "code_links": [
+        {
+          "symbol_uid": "563a40368e268985",
+          "file_path": ".github/workflows/dependency-audit.yml",
+          "name": "[Legacy] .github/workflows/dependency-audit.yml",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 1.0,
+          "reasons": [
+            "fallback: no matches; stable-first symbols (+1)"
+          ]
+        },
+        {
+          "symbol_uid": "3316b1943e3727c1",
+          "file_path": ".github/workflows/recall-guard.yml",
+          "name": "[Legacy] .github/workflows/recall-guard.yml",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 1.0,
+          "reasons": [
+            "fallback: no matches; stable-first symbols (+1)"
+          ]
+        },
+        {
+          "symbol_uid": "76df2c8ba356bcaf",
+          "file_path": "App.tsx",
+          "name": "App",
+          "kind": "variable",
+          "start_line": 5,
+          "end_line": 11,
+          "score": 1.0,
+          "reasons": [
+            "fallback: no matches; stable-first symbols (+1)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/L5_REMEDIATION_MATRIX.md#L27",
+      "title": "P1 (8-30 dias): Endurecimiento estructural",
+      "level": 2,
+      "file_path": "docs/L5_REMEDIATION_MATRIX.md",
+      "start_line": 27,
+      "end_line": 38,
+      "body_preview": "| ID | Riesgo | Accion | Archivos objetivo | Criterio de aceptacion | Evidencia |\n|---|---|---|---|---|---|\n| P1-01 | MFA parcialmente implementado | Implementar enforcement real de `require_mfa` en endpoints sensibles y flujo de session step-up. | `backend/auth_security.py`, `backend/routers/admin.py`, `backend/routers/c2.py`, `backend/routers/offensive.py` | Operaciones sensibles exigen MFA valido para roles definidos. | Tests de acceso con y sin MFA. |\n| P1-02 | Auditoria forense incompleta | Registrar IP y User-Agent reales; firmar eventos y fortalecer cadena de custodia. | `backend/core/a",
+      "code_links": [
+        {
+          "symbol_uid": "563a40368e268985",
+          "file_path": ".github/workflows/dependency-audit.yml",
+          "name": "[Legacy] .github/workflows/dependency-audit.yml",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 1.0,
+          "reasons": [
+            "fallback: no matches; stable-first symbols (+1)"
+          ]
+        },
+        {
+          "symbol_uid": "3316b1943e3727c1",
+          "file_path": ".github/workflows/recall-guard.yml",
+          "name": "[Legacy] .github/workflows/recall-guard.yml",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 1.0,
+          "reasons": [
+            "fallback: no matches; stable-first symbols (+1)"
+          ]
+        },
+        {
+          "symbol_uid": "76df2c8ba356bcaf",
+          "file_path": "App.tsx",
+          "name": "App",
+          "kind": "variable",
+          "start_line": 5,
+          "end_line": 11,
+          "score": 1.0,
+          "reasons": [
+            "fallback: no matches; stable-first symbols (+1)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/L5_REMEDIATION_MATRIX.md#L39",
+      "title": "P2 (31-90 dias): Madurez L5",
+      "level": 2,
+      "file_path": "docs/L5_REMEDIATION_MATRIX.md",
+      "start_line": 39,
+      "end_line": 49,
+      "body_preview": "| ID | Objetivo L5 | Accion | Criterio de aceptacion | Evidencia |\n|---|---|---|---|---|\n| P2-01 | Supply chain verificable | SBOM obligatorio, firma de artefactos, verificacion de procedencia en CI/CD. | Cada release tiene SBOM y firma validable antes de deploy. | Artefacto SBOM + verificacion en pipeline. |\n| P2-02 | Criptografia gestionada | Migrar claves a KMS/HSM, rotacion automatica y politicas de expiracion. | Ninguna clave larga vida en `.env` local para prod. | Politicas KMS + runbooks de rotacion. |\n| P2-03 | Zero Trust operativo | mTLS servicio-a-servicio, segmentacion por identidad",
+      "code_links": [
+        {
+          "symbol_uid": "2ce52c4d6bbf3d19",
+          "file_path": "backend/chain_templates/sql_injection_basic.yaml",
+          "name": "[Legacy] backend/chain_templates/sql_injection_basic.yaml",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 10.833333333333334,
+          "reasons": [
+            "name_match: token 'chain' in symbol.name (+10)",
+            "token_coverage: matched 1/12 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/L5_REMEDIATION_MATRIX.md#L50",
+      "title": "Quick Wins (48h)",
+      "level": 2,
+      "file_path": "docs/L5_REMEDIATION_MATRIX.md",
+      "start_line": 50,
+      "end_line": 55,
+      "body_preview": "- Bloquear `register` para no-admin y ocultar campos sensibles en respuestas.\n- Quitar devolucion de `encryption_key` en C2.\n- Introducir chequeos de startup fail-closed para secretos en produccion.\n- Eliminar `verify=False` en runtime y restringir targets por defecto.",
+      "code_links": [
+        {
+          "symbol_uid": "563a40368e268985",
+          "file_path": ".github/workflows/dependency-audit.yml",
+          "name": "[Legacy] .github/workflows/dependency-audit.yml",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 1.0,
+          "reasons": [
+            "fallback: no matches; stable-first symbols (+1)"
+          ]
+        },
+        {
+          "symbol_uid": "3316b1943e3727c1",
+          "file_path": ".github/workflows/recall-guard.yml",
+          "name": "[Legacy] .github/workflows/recall-guard.yml",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 1.0,
+          "reasons": [
+            "fallback: no matches; stable-first symbols (+1)"
+          ]
+        },
+        {
+          "symbol_uid": "76df2c8ba356bcaf",
+          "file_path": "App.tsx",
+          "name": "App",
+          "kind": "variable",
+          "start_line": 5,
+          "end_line": 11,
+          "score": 1.0,
+          "reasons": [
+            "fallback: no matches; stable-first symbols (+1)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/L5_REMEDIATION_MATRIX.md#L56",
+      "title": "KPIs de avance",
+      "level": 2,
+      "file_path": "docs/L5_REMEDIATION_MATRIX.md",
+      "start_line": 56,
+      "end_line": 62,
+      "body_preview": "- `Critical authz findings open`: objetivo `0` al cierre de P0.\n- `% endpoints sensibles con permiso explicito`: objetivo `100%`.\n- `Secrets hardcoded/expuestos`: objetivo `0`.\n- `TLS bypass points en runtime`: objetivo `0`.\n- `Eventos de auditoria con IP+UA reales`: objetivo `>= 99%`.",
+      "code_links": [
+        {
+          "symbol_uid": "fd22971394e5f291",
+          "file_path": "components/AuthContext.tsx",
+          "name": "fetchWithTimeout",
+          "kind": "variable",
+          "start_line": 33,
+          "end_line": 46,
+          "score": 19.26923076923077,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=5 (+10)",
+            "local_centrality: degree_in_relevant=5 (+2.5)",
+            "path_match: token 'con' in file_path (+6)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "fdca5b86b8610423",
+          "file_path": "components/AuthContext.tsx",
+          "name": "checkSession",
+          "kind": "variable",
+          "start_line": 62,
+          "end_line": 87,
+          "score": 15.26923076923077,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=3 (+6)",
+            "graph_proximity: outgoing to relevant import=0 reference=1 (+0.5)",
+            "local_centrality: degree_in_relevant=4 (+2.0)",
+            "path_match: token 'con' in file_path (+6)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "7695982c5b8be594",
+          "file_path": "components/AuthContext.tsx",
+          "name": "useAuth",
+          "kind": "variable",
+          "start_line": 217,
+          "end_line": 223,
+          "score": 11.76923076923077,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=2 (+4)",
+            "local_centrality: degree_in_relevant=2 (+1.0)",
+            "path_match: token 'con' in file_path (+6)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/L5_REMEDIATION_MATRIX.md#L63",
+      "title": "Gate de certificacion interna L5 (recomendado)",
+      "level": 2,
+      "file_path": "docs/L5_REMEDIATION_MATRIX.md",
+      "start_line": 63,
+      "end_line": 65,
+      "body_preview": "- No declarar “L5” hasta cerrar todos los P0 y al menos 80% de P1 con evidencia reproducible.\n- Requiere firma de Arquitectura, Seguridad y Operaciones.",
+      "code_links": [
+        {
+          "symbol_uid": "fd22971394e5f291",
+          "file_path": "components/AuthContext.tsx",
+          "name": "fetchWithTimeout",
+          "kind": "variable",
+          "start_line": 33,
+          "end_line": 46,
+          "score": 19.333333333333332,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=5 (+10)",
+            "local_centrality: degree_in_relevant=5 (+2.5)",
+            "path_match: token 'con' in file_path (+6)",
+            "token_coverage: matched 1/12 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "fdca5b86b8610423",
+          "file_path": "components/AuthContext.tsx",
+          "name": "checkSession",
+          "kind": "variable",
+          "start_line": 62,
+          "end_line": 87,
+          "score": 15.333333333333332,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=3 (+6)",
+            "graph_proximity: outgoing to relevant import=0 reference=1 (+0.5)",
+            "local_centrality: degree_in_relevant=4 (+2.0)",
+            "path_match: token 'con' in file_path (+6)",
+            "token_coverage: matched 1/12 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "7695982c5b8be594",
+          "file_path": "components/AuthContext.tsx",
+          "name": "useAuth",
+          "kind": "variable",
+          "start_line": 217,
+          "end_line": 223,
+          "score": 11.833333333333332,
+          "reasons": [
+            "graph_proximity: incoming from relevant import=0 reference=2 (+4)",
+            "local_centrality: degree_in_relevant=2 (+1.0)",
+            "path_match: token 'con' in file_path (+6)",
+            "token_coverage: matched 1/12 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/PAYLOAD_MUTATION.md#L1",
+      "title": "Payload Mutation Engine",
+      "level": 1,
+      "file_path": "docs/PAYLOAD_MUTATION.md",
+      "start_line": 1,
+      "end_line": 4,
+      "body_preview": "The Payload Mutation Engine enhances evasion capabilities by dynamically modifying attack payloads to bypass Web Application Firewalls (WAFs) and Intrusion Detection Systems (IDS).",
+      "code_links": [
+        {
+          "symbol_uid": "939c06c6dbae2ac9",
+          "file_path": "backend/core/xml/payloads/boolean_blind.xml",
+          "name": "[Legacy] backend/core/xml/payloads/boolean_blind.xml",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 21.666666666666668,
+          "reasons": [
+            "name_match: token 'payload' in symbol.name (+10)",
+            "name_match: token 'payloads' in symbol.name (+10)",
+            "token_coverage: matched 2/12 (+1.7)"
+          ]
+        },
+        {
+          "symbol_uid": "85ce21ead6b390a9",
+          "file_path": "backend/core/xml/payloads/error_based.xml",
+          "name": "[Legacy] backend/core/xml/payloads/error_based.xml",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 21.666666666666668,
+          "reasons": [
+            "name_match: token 'payload' in symbol.name (+10)",
+            "name_match: token 'payloads' in symbol.name (+10)",
+            "token_coverage: matched 2/12 (+1.7)"
+          ]
+        },
+        {
+          "symbol_uid": "a9beff43d2d12e21",
+          "file_path": "backend/core/xml/payloads/inline_query.xml",
+          "name": "[Legacy] backend/core/xml/payloads/inline_query.xml",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 21.666666666666668,
+          "reasons": [
+            "name_match: token 'payload' in symbol.name (+10)",
+            "name_match: token 'payloads' in symbol.name (+10)",
+            "token_coverage: matched 2/12 (+1.7)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/PAYLOAD_MUTATION.md#L5",
+      "title": "Mutation Techniques",
+      "level": 2,
+      "file_path": "docs/PAYLOAD_MUTATION.md",
+      "start_line": 5,
+      "end_line": 16,
+      "body_preview": "The engine supports 7 advanced mutation techniques:",
+      "code_links": [
+        {
+          "symbol_uid": "eb755723a9c97909",
+          "file_path": "AppRuntime.tsx",
+          "name": "fetchEngineHealth",
+          "kind": "variable",
+          "start_line": 707,
+          "end_line": 745,
+          "score": 11.666666666666666,
+          "reasons": [
+            "name_match: token 'engine' in symbol.name (+10)",
+            "token_coverage: matched 1/6 (+1.7)"
+          ]
+        },
+        {
+          "symbol_uid": "6fd32fab9f4694a9",
+          "file_path": "ares_engine/README.md",
+          "name": "[Legacy] ares_engine/README.md",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 11.666666666666666,
+          "reasons": [
+            "name_match: token 'engine' in symbol.name (+10)",
+            "token_coverage: matched 1/6 (+1.7)"
+          ]
+        },
+        {
+          "symbol_uid": "5d0e032ee74057cd",
+          "file_path": "docs/PAYLOAD_MUTATION.md",
+          "name": "[Legacy] docs/PAYLOAD_MUTATION.md",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 11.666666666666666,
+          "reasons": [
+            "name_match: token 'mutation' in symbol.name (+10)",
+            "token_coverage: matched 1/6 (+1.7)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/PAYLOAD_MUTATION.md#L17",
+      "title": "Integration",
+      "level": 2,
+      "file_path": "docs/PAYLOAD_MUTATION.md",
+      "start_line": 17,
+      "end_line": 20,
+      "body_preview": "The engine is integrated into the `v4_omni_surface.py` module and is triggered when `polymorphic_payloads` is enabled in the configuration. It generates a custom payload file that is passed to SQLMap via the `--prefix` and `--suffix` arguments, customized for the detected WAF and DBMS.",
+      "code_links": [
+        {
+          "symbol_uid": "2656298bdbabdead",
+          "file_path": "backend/INTEGRATION_MATRIX_ORGANIGRAMA_V1.md",
+          "name": "[Legacy] backend/INTEGRATION_MATRIX_ORGANIGRAMA_V1.md",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 36.81818181818182,
+          "reasons": [
+            "name_match: token 'integration' in symbol.name (+10)",
+            "phrase_match: \"integration\" in symbol.name (+25)",
+            "token_coverage: matched 2/11 (+1.8)"
+          ]
+        },
+        {
+          "symbol_uid": "eb755723a9c97909",
+          "file_path": "AppRuntime.tsx",
+          "name": "fetchEngineHealth",
+          "kind": "variable",
+          "start_line": 707,
+          "end_line": 745,
+          "score": 10.90909090909091,
+          "reasons": [
+            "name_match: token 'engine' in symbol.name (+10)",
+            "token_coverage: matched 1/11 (+0.9)"
+          ]
+        },
+        {
+          "symbol_uid": "6fd32fab9f4694a9",
+          "file_path": "ares_engine/README.md",
+          "name": "[Legacy] ares_engine/README.md",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 10.90909090909091,
+          "reasons": [
+            "name_match: token 'engine' in symbol.name (+10)",
+            "token_coverage: matched 1/11 (+0.9)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/PAYLOAD_MUTATION.md#L21",
+      "title": "Configuration",
+      "level": 2,
+      "file_path": "docs/PAYLOAD_MUTATION.md",
+      "start_line": 21,
+      "end_line": 24,
+      "body_preview": "-   `polymorphic_payloads`: Enable/disable payload mutation.\n-   `wafType`: Specify the target WAF type to tailor mutations (e.g., \"cloudflare\", \"modsecurity\").",
+      "code_links": [
+        {
+          "symbol_uid": "5d0e032ee74057cd",
+          "file_path": "docs/PAYLOAD_MUTATION.md",
+          "name": "[Legacy] docs/PAYLOAD_MUTATION.md",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 21.666666666666668,
+          "reasons": [
+            "name_match: token 'mutation' in symbol.name (+10)",
+            "name_match: token 'payload' in symbol.name (+10)",
+            "token_coverage: matched 2/12 (+1.7)"
+          ]
+        },
+        {
+          "symbol_uid": "32015a14998c7e5e",
+          "file_path": "AppRuntime.tsx",
+          "name": "normalizeTargetConfig",
+          "kind": "variable",
+          "start_line": 58,
+          "end_line": 99,
+          "score": 10.833333333333334,
+          "reasons": [
+            "name_match: token 'target' in symbol.name (+10)",
+            "token_coverage: matched 1/12 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "939c06c6dbae2ac9",
+          "file_path": "backend/core/xml/payloads/boolean_blind.xml",
+          "name": "[Legacy] backend/core/xml/payloads/boolean_blind.xml",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 10.833333333333334,
+          "reasons": [
+            "name_match: token 'payload' in symbol.name (+10)",
+            "token_coverage: matched 1/12 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/POST_EXPLOITATION.md#L1",
+      "title": "Post-Exploitation Module",
+      "level": 1,
+      "file_path": "docs/POST_EXPLOITATION.md",
+      "start_line": 1,
+      "end_line": 4,
+      "body_preview": "This module provides advanced post-exploitation capabilities for the Cerberus Pro platform. It is designed to run automatically after a vulnerability is confirmed, extracting sensitive information and attempting deeper system access.",
+      "code_links": [
+        {
+          "symbol_uid": "9abf20bcfe71b548",
+          "file_path": "AppRuntime.tsx",
+          "name": "formatExtractedValue",
+          "kind": "variable",
+          "start_line": 175,
+          "end_line": 192,
+          "score": 10.833333333333334,
+          "reasons": [
+            "name_match: token 'for' in symbol.name (+10)",
+            "token_coverage: matched 1/12 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "d413fcaac3ccd03b",
+          "file_path": "AppRuntime.tsx",
+          "name": "fetchCapabilities",
+          "kind": "variable",
+          "start_line": 683,
+          "end_line": 700,
+          "score": 10.833333333333334,
+          "reasons": [
+            "name_match: token 'capabilities' in symbol.name (+10)",
+            "token_coverage: matched 1/12 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "93e9f7eb61540fa5",
+          "file_path": "backend/RECALL_ROADMAP_PROGRESS_V1.md",
+          "name": "[Legacy] backend/RECALL_ROADMAP_PROGRESS_V1.md",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 10.833333333333334,
+          "reasons": [
+            "name_match: token 'pro' in symbol.name (+10)",
+            "token_coverage: matched 1/12 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/POST_EXPLOITATION.md#L5",
+      "title": "Features",
+      "level": 2,
+      "file_path": "docs/POST_EXPLOITATION.md",
+      "start_line": 5,
+      "end_line": 12,
+      "body_preview": "-   **Automated Chaining**: Automatically triggers extraction phases upon confirming a vulnerability.\n-   **Data Extraction**: Dumps databases, tables, and columns based on configuration.\n-   **File System Access**: Attempts to read sensitive files (e.g., `/etc/passwd`, `win.ini`).\n-   **Shell Access**: Can attempt to spawn an OS shell or execute commands (opt-in).\n-   **Encryption**: Securely encrypts all extracted data and reports using AES-256-GCM.",
+      "code_links": [
+        {
+          "symbol_uid": "4d25493302e52e6d",
+          "file_path": "backend/ml/sample_training_data.json",
+          "name": "[Legacy] backend/ml/sample_training_data.json",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 10.76923076923077,
+          "reasons": [
+            "name_match: token 'data' in symbol.name (+10)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "345ecb67da52766b",
+          "file_path": "metadata.json",
+          "name": "[Legacy] metadata.json",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 10.76923076923077,
+          "reasons": [
+            "name_match: token 'data' in symbol.name (+10)",
+            "token_coverage: matched 1/13 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/POST_EXPLOITATION.md#L13",
+      "title": "Configuration",
+      "level": 2,
+      "file_path": "docs/POST_EXPLOITATION.md",
+      "start_line": 13,
+      "end_line": 21,
+      "body_preview": "The module is configured via the `omni_surface_scan` configuration in `cerberus_pro_api_secure.py`. Key parameters include:",
+      "code_links": [
+        {
+          "symbol_uid": "762a380b684d1ea1",
+          "file_path": "components/Terminal.tsx",
+          "name": "handleKeyDown",
+          "kind": "variable",
+          "start_line": 54,
+          "end_line": 82,
+          "score": 11.0,
+          "reasons": [
+            "name_match: token 'key' in symbol.name (+10)",
+            "token_coverage: matched 1/10 (+1.0)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/POST_EXPLOITATION.md#L22",
+      "title": "Usage",
+      "level": 2,
+      "file_path": "docs/POST_EXPLOITATION.md",
+      "start_line": 22,
+      "end_line": 30,
+      "body_preview": "When `chaining` is enabled, the `PostExploitationEngine` is initialized with the base command used to detect the vulnerability. It then sequentially executes the following phases:",
+      "code_links": [
+        {
+          "symbol_uid": "4274a99a834afaf3",
+          "file_path": "AppRuntime.tsx",
+          "name": "handleTerminalCommand",
+          "kind": "variable",
+          "start_line": 888,
+          "end_line": 957,
+          "score": 10.833333333333334,
+          "reasons": [
+            "name_match: token 'command' in symbol.name (+10)",
+            "token_coverage: matched 1/12 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "7b5d45dc680c5904",
+          "file_path": "AppRuntime.tsx",
+          "name": "getCommandPreview",
+          "kind": "variable",
+          "start_line": 1022,
+          "end_line": 1037,
+          "score": 10.833333333333334,
+          "reasons": [
+            "name_match: token 'command' in symbol.name (+10)",
+            "token_coverage: matched 1/12 (+0.8)"
+          ]
+        },
+        {
+          "symbol_uid": "85ce21ead6b390a9",
+          "file_path": "backend/core/xml/payloads/error_based.xml",
+          "name": "[Legacy] backend/core/xml/payloads/error_based.xml",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 10.833333333333334,
+          "reasons": [
+            "name_match: token 'base' in symbol.name (+10)",
+            "token_coverage: matched 1/12 (+0.8)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docs/POST_EXPLOITATION.md#L31",
+      "title": "Security",
+      "level": 2,
+      "file_path": "docs/POST_EXPLOITATION.md",
+      "start_line": 31,
+      "end_line": 34,
+      "body_preview": "-   **Encryption**: All results are encrypted using a key derived from the `ENCRYPTION_KEY` environment variable.\n-   **Operational Security**: Shell access is disabled by default to prevent accidental damage or detection.",
+      "code_links": [
+        {
+          "symbol_uid": "3316b1943e3727c1",
+          "file_path": ".github/workflows/recall-guard.yml",
+          "name": "[Legacy] .github/workflows/recall-guard.yml",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 10.90909090909091,
+          "reasons": [
+            "name_match: token 'all' in symbol.name (+10)",
+            "token_coverage: matched 1/11 (+0.9)"
+          ]
+        },
+        {
+          "symbol_uid": "d80b4aae98e2d3a3",
+          "file_path": "backend/RECALL_MANIFEST_V1.md",
+          "name": "[Legacy] backend/RECALL_MANIFEST_V1.md",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 10.90909090909091,
+          "reasons": [
+            "name_match: token 'all' in symbol.name (+10)",
+            "token_coverage: matched 1/11 (+0.9)"
+          ]
+        },
+        {
+          "symbol_uid": "93e9f7eb61540fa5",
+          "file_path": "backend/RECALL_ROADMAP_PROGRESS_V1.md",
+          "name": "[Legacy] backend/RECALL_ROADMAP_PROGRESS_V1.md",
+          "kind": "variable",
+          "start_line": 1,
+          "end_line": 1,
+          "score": 10.90909090909091,
+          "reasons": [
+            "name_match: token 'all' in symbol.name (+10)",
+            "token_coverage: matched 1/11 (+0.9)"
+          ]
+        }
+      ]
+    }
+  ],
+  "warnings": [],
+  "debug_stats": {
+    "time_ms": 174
+  }
+}

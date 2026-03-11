@@ -19,6 +19,15 @@ from backend import ares_runtime as _impl
 # OrchestratorPhase.ESCALATION
 
 
+# ---------------------------------------------------------------------------
+# A-02 ACHTUNG: RIESGO DE DEUDA TÉCNICA (Re-exportación dinámica)
+# ---------------------------------------------------------------------------
+# Este patrón (dinámicamente exportar símbolos de `ares_runtime` hacia `ares_api`)
+# rompe el análisis estático (mypy, pyright, IDE autocompletion) y hace que
+# refactorizaciones futuras sean peligrosas porque las dependencias inversas
+# (módulos importando de ares_api) fallarán silenciosamente si algo cambia su nombre.
+# Debe refactorizarse a exportación explícita: `from .ares_runtime import app, PG_STORE...`
+# ---------------------------------------------------------------------------
 def _reexport_runtime_symbols(module: ModuleType) -> None:
     for name in dir(module):
         if name.startswith("__"):

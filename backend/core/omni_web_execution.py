@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict, List, Optional
 from .cerberus_http_client import CerberusHTTPClient
+from .smart_cache import get_shared_smart_cache
 
 
 async def execute_web_mode_phases(
@@ -43,7 +44,43 @@ async def execute_web_mode_phases(
         if vector in {"UNION", "ERROR", "TIME", "BOOLEAN", "STACKED", "INLINE"}
     ]
 
-    for phase in phases:
+    # G-03: Smart Cache Fast-Track - Prioritizar técnica ganadora previa
+    try:
+        shared_cache = get_shared_smart_cache()
+        cached_strategy = await shared_cache.get_cached_strategy({
+            "namespace": "native_success_v1",
+            "target": target_url,
+        })
+        if cached_strategy and isinstance(cached_strategy, dict):
+            winning_vector = cached_strategy.get("vector")
+            if winning_vector and winning_vector in sqlmap_vectors:
+                # Mover al inicio de la lista
+                sqlmap_vectors.remove(winning_vector)
+                sqlmap_vectors.insert(0, winning_vector)
+                try:
+                    await broadcast_log_fn(
+                        "🧠 SMART_CACHE",
+                        "INFO",
+                        f"Fast-Track activado: Priorizando técnica exitosa detectada en memoria -> {winning_vector}",
+                        {"winning_vector": winning_vector}
+                    )
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # C-04 FIX: crear el cliente HTTP una sola vez fuera del loop de fases.
+    # Esto evita reconexiones innecesarias y garantiza el cierre con try/finally
+    # incluso si ocurre una excepción durante la ejecución.
+    anon_client = CerberusHTTPClient(
+        use_tor=bool(omni_cfg.get("tor", False)),
+        tor_port=int(omni_cfg.get("torPort", 9050)),
+        proxy=omni_cfg.get("proxy"),
+        timeout=int((sql_config or {}).get("timeout", 15)),
+        random_agent=bool((sql_config or {}).get("randomAgent", True))
+    )
+    try:
+      for phase in phases:
         phases_ran.append(int(phase))
         try:
             waf_preset_last = await calibration_waf_detect_fn(target_url)
@@ -54,15 +91,19 @@ async def execute_web_mode_phases(
         phase_sql_config = dict(sql_config or {})
         phase_omni_cfg = dict(omni_cfg or {})
         phase_max_parallel = max(1, int(max_parallel))
-        phase_defended = bool(
-            (str(waf_preset_last or "").lower() != "general_strong")
-            or defended_heuristics.get("suspected")
-        )
+        # M-02 FIX: condición más robusta para detectar defensa WAF sin falsos positivos
+        # waf_preset_last es siempre un string válido aquí (el except anterior asegura "general_strong")
+        _waf_str = str(waf_preset_last or "").lower().strip()
+        waf_actively_detected = bool(_waf_str and _waf_str not in ("", "general_strong", "none"))
+        phase_defended = waf_actively_detected or bool(defended_heuristics.get("suspected"))
 
         if adaptive_cfg_enabled:
             if phase_defended:
-                phase_sql_config["threads"] = 1
-                phase_max_parallel = 1
+                # Smart adaptive: stealth via evasion+jitter, NOT by killing parallelism.
+                # parallel=3 allows 3 vectors at once (still conservative vs max_parallel=10).
+                # threads=2 keeps sqlmap responsive without hammering the target.
+                phase_sql_config["threads"] = 2
+                phase_max_parallel = min(3, max(1, int(max_parallel)))
                 phase_omni_cfg["forceEvasion"] = True
                 phase_omni_cfg["humanMode"] = True
                 phase_omni_cfg["singleDiscoveryPass"] = True
@@ -70,12 +111,12 @@ async def execute_web_mode_phases(
                     await broadcast_log_fn(
                         "ORQUESTADOR",
                         "INFO",
-                        f"Adaptive policy: defensa detectada ({waf_preset_last}) -> threads=1, parallel=1, human_mode=on",
+                        f"Adaptive policy: defensa detectada ({waf_preset_last}) -> threads=2, parallel={phase_max_parallel}, human_mode=on, evasion=on",
                         {
                             "waf": waf_preset_last,
                             "heuristic_reasons": defended_heuristics.get("reasons"),
-                            "threads": 1,
-                            "parallel": 1,
+                            "threads": 2,
+                            "parallel": phase_max_parallel,
                         },
                     )
                 except Exception:
@@ -126,12 +167,18 @@ async def execute_web_mode_phases(
         sem = asyncio.Semaphore(max(1, int(phase_max_parallel)))
         defense_triggers = {"captcha", "waf", "login_redirect", "rate_limit", "connection_instability"}
         hot_rerun_done: set[str] = set()
+        fast_failover_triggered = False
 
         async def _run_sql_vec(vec_name: str, cmd: List[str]) -> None:
             async with sem:
                 vec_upper = str(vec_name).upper()
+                # M-06 FIX: copias locales para evitar race conditions cuando
+                # múltiples instancias del closure mutan los mismos dicts compartidos
+                local_sql_cfg = dict(phase_sql_config)
+                local_omni_cfg = dict(phase_omni_cfg)
                 try:
-                    result = await run_sqlmap_vector_fn(vec_name, cmd, broadcast_log_fn, timeout_sec=600)
+                    dynamic_timeout = max(120, int(local_sql_cfg.get("timeout", 15)) * 10)
+                    result = await run_sqlmap_vector_fn(vec_name, cmd, broadcast_log_fn, polymorphic=polymorphic, timeout_sec=dynamic_timeout)
                     payload = {
                         "vector": result.vector,
                         "vulnerable": bool(result.vulnerable),
@@ -163,92 +210,18 @@ async def execute_web_mode_phases(
                     runtime_signals = _extract_runtime_signals(list(payload.get("evidence") or []))
                     if runtime_signals.intersection(defense_triggers):
                         hot_rerun_done.add(vec_upper)
-                        phase_sql_config["threads"] = 1
-                        phase_omni_cfg["forceEvasion"] = True
-                        phase_omni_cfg["humanMode"] = True
-                        phase_omni_cfg["singleDiscoveryPass"] = True
-                        rerun_cfg = dict(phase_omni_cfg or {})
+                        local_sql_cfg["threads"] = 1
+                        local_omni_cfg["forceEvasion"] = True
+                        local_omni_cfg["humanMode"] = True
+                        local_omni_cfg["singleDiscoveryPass"] = True
+                        rerun_cfg = dict(local_omni_cfg)
                         rerun_cfg["discoveryAlreadyApplied"] = True
                         if "waf_active_blocking" in runtime_signals:
                             rerun_cfg["rotateProxy"] = True
                             rerun_cfg["forceChangeUAFamily"] = True
-                            if (phase_omni_cfg.get("oob") or {}).get("dnsDomain"):
-                                rerun_cfg.setdefault("oob", {})["dnsDomain"] = phase_omni_cfg.get("oob").get("dnsDomain")
-                            try:
-                                extraction_cfg = dict(phase_omni_cfg or {})
-                                extraction_sql = dict(phase_sql_config or {})
-                                extraction_sql["getDbs"] = True
-                                extraction_sql["currentUser"] = True
-                                extraction_cfg["forceEvasion"] = True
-                                if (phase_omni_cfg.get("oob") or {}).get("dnsDomain"):
-                                    extraction_cfg.setdefault("oob", {})["dnsDomain"] = phase_omni_cfg.get("oob").get("dnsDomain")
-
-                                extraction_commands = build_vector_commands_fn(
-                                    python_exec=python_exec,
-                                    sqlmap_path=sqlmap_path,
-                                    target_url=target_url,
-                                    sql_config=extraction_sql,
-                                    stealth_args=stealth_args,
-                                    polymorphic=polymorphic,
-                                    vectors=[vec_upper],
-                                    omni_cfg=extraction_cfg,
-                                )
-                                if extraction_commands:
-                                    _, ext_cmd = extraction_commands[0]
-                                    try:
-                                        ext_res = await run_sqlmap_vector_fn(
-                                            vec_upper,
-                                            ext_cmd,
-                                            broadcast_log_fn,
-                                            timeout_sec=900,
-                                        )
-                                        ext_evidence = list(ext_res.evidence or [])
-                                        ext_output = "\n".join(ext_evidence)
-                                        is_tampered = diff_validator.detect_waf_response_tampering(ext_output)
-                                        if is_tampered:
-                                            try:
-                                                await broadcast_log_fn(
-                                                    "ORQUESTADOR",
-                                                    "WARN",
-                                                    f"[Extracción] Possible WAF response tampering detected for {vec_upper}; marking as unreliable; forces OOB/DNS",
-                                                    {"vector": vec_upper, "is_tampered": True},
-                                                )
-                                            except Exception:
-                                                pass
-                                            ext_evidence.insert(0, "unreliable_extraction:response_tampered")
-                                        else:
-                                            try:
-                                                await broadcast_log_fn(
-                                                    "ORQUESTADOR",
-                                                    "INFO",
-                                                    f"[Extracción] Response validation passed for {vec_upper}; extraction appears trustworthy",
-                                                    {"vector": vec_upper, "is_tampered": False},
-                                                )
-                                            except Exception:
-                                                pass
-                                        results.append(
-                                            {
-                                                "vector": ext_res.vector,
-                                                "vulnerable": bool(ext_res.vulnerable),
-                                                "evidence": ext_evidence,
-                                                "exit_code": int(ext_res.exit_code),
-                                                "command": list(ext_res.command or []),
-                                                "error": None,
-                                            }
-                                        )
-                                        try:
-                                            await broadcast_log_fn(
-                                                "ORQUESTADOR",
-                                                "INFO",
-                                                f"Immediate extraction attempted for {vec_upper} after active blocking; results appended",
-                                                {"vector": vec_upper},
-                                            )
-                                        except Exception:
-                                            pass
-                                    except Exception:
-                                        pass
-                            except Exception:
-                                pass
+                            if (local_omni_cfg.get("oob") or {}).get("dnsDomain"):
+                                rerun_cfg.setdefault("oob", {})["dnsDomain"] = local_omni_cfg.get("oob").get("dnsDomain")
+                            # Removed early 900s extraction inside discovery phase to prevent hanging on WAF blocks
                         try:
                             await broadcast_log_fn(
                                 "ORQUESTADOR",
@@ -262,7 +235,7 @@ async def execute_web_mode_phases(
                             python_exec=python_exec,
                             sqlmap_path=sqlmap_path,
                             target_url=target_url,
-                            sql_config=phase_sql_config,
+                            sql_config=local_sql_cfg,
                             stealth_args=stealth_args,
                             polymorphic=polymorphic,
                             vectors=[vec_upper],
@@ -275,7 +248,8 @@ async def execute_web_mode_phases(
                                     vec_upper,
                                     rerun_cmd,
                                     broadcast_log_fn,
-                                    timeout_sec=600,
+                                    polymorphic=polymorphic,
+                                    timeout_sec=max(180, int(local_sql_cfg.get("timeout", 15)) * 12),
                                 )
                                 merged_evidence = list(
                                     dict.fromkeys(
@@ -301,6 +275,10 @@ async def execute_web_mode_phases(
                                 except Exception:
                                     pass
                 results.append(payload)
+
+                nonlocal fast_failover_triggered
+                if bool(payload.get("vulnerable")):
+                    fast_failover_triggered = True
 
         if adaptive_cfg_enabled and len(sqlmap_vectors) > 1:
             probe_vec = str(sqlmap_vectors[0]).upper()
@@ -355,12 +333,10 @@ async def execute_web_mode_phases(
                     vectors=remaining_vectors,
                     omni_cfg=remaining_cfg,
                 )
-                await asyncio.gather(
-                    *[
-                        asyncio.create_task(_run_sql_vec(vec_name, cmd))
-                        for vec_name, cmd in commands
-                    ]
-                )
+                for vec_name, cmd in commands:
+                    if fast_failover_triggered:
+                        break
+                    await _run_sql_vec(vec_name, cmd)
         else:
             commands = build_vector_commands_fn(
                 python_exec=python_exec,
@@ -372,12 +348,10 @@ async def execute_web_mode_phases(
                 vectors=sqlmap_vectors,
                 omni_cfg=phase_omni_cfg,
             )
-            await asyncio.gather(
-                *[
-                    asyncio.create_task(_run_sql_vec(vec_name, cmd))
-                    for vec_name, cmd in commands
-                ]
-            )
+            for vec_name, cmd in commands:
+                if fast_failover_triggered:
+                    break
+                await _run_sql_vec(vec_name, cmd)
 
         # ── Ghost Network Anonymization Layer ────────────────────────
         anon_client = CerberusHTTPClient(
@@ -390,8 +364,13 @@ async def execute_web_mode_phases(
         # ─────────────────────────────────────────────────────────────
 
         if ("AIIE" in requested_sqlmap_vectors) or bool(omni_cfg.get("aiie")):
-            aiie_engine = engine_registry.get_engine("aiie")
-            if aiie_engine is not None:
+            if fast_failover_triggered:
+                try:
+                    await broadcast_log_fn("ORQUESTADOR", "INFO", "Fast-Failover: AIIE cancelado porque se confirmó vulnerabilidad crítica.", {"vector":"AIIE"})
+                except Exception:
+                    pass
+            elif engine_registry.get_engine("aiie") is not None:
+                aiie_engine = engine_registry.get_engine("aiie")
                 try:
                     # Pass the anonymized client to the engine
                     aiie_res = await aiie_engine.run(target_url, cfg, broadcast_log_fn, client=anon_client)
@@ -406,6 +385,8 @@ async def execute_web_mode_phases(
                             "error": None,
                         }
                     )
+                    if bool(aiie_res.vulnerable):
+                        fast_failover_triggered = True
                 except Exception as exc:
                     results.append(
                         {
@@ -432,6 +413,8 @@ async def execute_web_mode_phases(
                             "error": None,
                         }
                     )
+                    if bool(nosql_res.vulnerable):
+                        fast_failover_triggered = True
                 except Exception as exc:
                     results.append(
                         {
@@ -458,6 +441,8 @@ async def execute_web_mode_phases(
                             "error": None,
                         }
                     )
+                    if bool(ssti_res.vulnerable):
+                        fast_failover_triggered = True
                 except Exception as exc:
                     results.append(
                         {
@@ -470,12 +455,18 @@ async def execute_web_mode_phases(
                         }
                     )
         
-        # Cleanup Ghost Network connection pool
-        await anon_client.close()
+        # Cleanup: el cliente se reutiliza entre fases y se cierra en el bloque finally
 
-        final_vuln = final_vuln or any(bool(item.get("vulnerable")) for item in results)
+        # C-05 FIX: evaluar solo los resultados de ESTA fase, no acumulados
+        phase_results = results[_phase_results_start:]
+        final_vuln = final_vuln or any(bool(item.get("vulnerable")) for item in phase_results)
         if final_vuln and (not is_deep):
             break
+
+    finally:
+        # C-04 FIX: cerrar el cliente una sola vez al terminar todas las fases,
+        # garantizando que no queden conexiones abiertas aunque ocurra una excepción
+        await anon_client.close()
 
     return {
         "results": results,

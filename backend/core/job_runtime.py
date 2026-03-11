@@ -51,22 +51,27 @@ async def refresh_queue_backlog_metric(
     *,
     pg_enabled: bool,
     pg_store: Any,
-    job_count_db: Callable[..., int],
+    job_count_db: Callable[..., Awaitable[int]],
     queue_backlog_metric: Any,
 ) -> None:
     try:
         if pg_enabled:
-            queued = int(pg_store.count_jobs(statuses=["queued"]))
+            queued = int(await asyncio.to_thread(pg_store.count_jobs, statuses=["queued"]))
         else:
-            queued = int(job_count_db(statuses=["queued"]))
+            queued = int(await job_count_db(statuses=["queued"]))
         queue_backlog_metric.set(max(0, queued))
     except Exception:
         return
 
 
 def enqueue_job_memory(*, state: Any, queue_backlog_metric: Any, scan_id: str) -> None:
+    # Dedup guard: memory queue (unlike Redis ZADD) allows duplicates.
+    if scan_id in getattr(state, 'enqueued_scan_ids', set()):
+        return
     try:
         state.job_queue.put_nowait(scan_id)
+        if hasattr(state, 'enqueued_scan_ids'):
+            state.enqueued_scan_ids.add(scan_id)
         queue_backlog_metric.set(max(0, state.job_queue.qsize()))
     except asyncio.QueueFull:
         raise HTTPException(status_code=503, detail="Job queue full; retry later")
@@ -77,7 +82,7 @@ async def queue_enqueue(
     state: Any,
     scan_id: str,
     priority: int,
-    job_get: Callable[[str], Optional[dict]],
+    job_get: Callable[[str], Awaitable[Optional[dict]]],
     job_now: Callable[[], str],
     queue_key: str,
     refresh_queue_backlog_metric_fn: Callable[[], Awaitable[None]],
@@ -88,7 +93,7 @@ async def queue_enqueue(
         await refresh_queue_backlog_metric_fn()
         return
 
-    job = job_get(scan_id) or {}
+    job = await job_get(scan_id) or {}
     score = job_score(int(priority), str(job.get("created_at") or job_now()))
     # ZADD is idempotent for existing members.
     await state.redis.zadd(queue_key, {scan_id: score})
@@ -106,6 +111,9 @@ async def queue_pop(
     if state.redis is None:
         try:
             item = await asyncio.wait_for(state.job_queue.get(), timeout=timeout_seconds)
+            # Clear dedup guard so the scan_id CAN be re-enqueued (e.g. retry flow)
+            if hasattr(state, 'enqueued_scan_ids'):
+                state.enqueued_scan_ids.discard(str(item))
             queue_backlog_metric.set(max(0, state.job_queue.qsize()))
             await refresh_queue_backlog_metric_fn()
             return str(item)

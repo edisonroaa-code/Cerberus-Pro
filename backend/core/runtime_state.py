@@ -40,6 +40,8 @@ class CerberusState:
         self.running_kind_by_user: dict = {}  # user_id -> kind ("unified")
         self.current_job_task_by_user: dict = {}  # user_id -> asyncio.Task (worker-owned)
         self.cancelled_jobs: set = set()  # scan_id cancelled before execution
+        self.enqueued_scan_ids: set = set()  # dedup guard for memory queue
+        self.stop_requested_users: set = set()  # user_ids with pending stop
 
         # Enterprise multi-instance queue support
         self.redis = None  # redis_async.Redis | None

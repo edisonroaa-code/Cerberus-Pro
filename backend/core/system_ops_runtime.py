@@ -18,7 +18,7 @@ class SystemOpsRuntimeDeps:
     worker_id: str
     version: str
     security_label: str
-    job_count_db_fn: Callable[..., int]
+    job_count_db_fn: Callable[..., Awaitable[int]]
     ensure_job_background_tasks_fn: Callable[..., Awaitable[List[str]]]
     enqueue_queued_jobs_fn: Callable[[], Awaitable[None]]
     task_runtime_state_fn: Callable[[Any], dict]
@@ -55,8 +55,8 @@ async def health_payload(*, deps: SystemOpsRuntimeDeps) -> Dict[str, Any]:
     queued_db = 0
     running_db = 0
     try:
-        queued_db = deps.job_count_db_fn(statuses=["queued"])
-        running_db = deps.job_count_db_fn(statuses=["running"])
+        queued_db = await deps.job_count_db_fn(statuses=["queued"])
+        running_db = await deps.job_count_db_fn(statuses=["running"])
     except Exception:
         queued_db = -1
         running_db = -1
@@ -93,8 +93,8 @@ async def health_payload(*, deps: SystemOpsRuntimeDeps) -> Dict[str, Any]:
 async def admin_kick_jobs_payload(*, deps: SystemOpsRuntimeDeps, force_start: bool = False) -> Dict[str, Any]:
     started = await deps.ensure_job_background_tasks_fn(force=bool(force_start))
     await deps.enqueue_queued_jobs_fn()
-    queued_db = deps.job_count_db_fn(statuses=["queued"])
-    running_db = deps.job_count_db_fn(statuses=["running"])
+    queued_db = await deps.job_count_db_fn(statuses=["queued"])
+    running_db = await deps.job_count_db_fn(statuses=["running"])
     return {
         "ok": True,
         "jobs": _jobs_runtime_snapshot(
